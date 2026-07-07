@@ -436,7 +436,7 @@ The end-state experience is a **video call with Dr. Mira** — a virtual doctor 
 
 ### 9.2 Still open (please answer during review)
 1. **Notifications** — is web push (patient notified on approval) MVP, or is in-app status enough? (Note iOS Safari push constraints, R-4 in §8A.)
-3. **Doctor assignment** — MVP assumes a shared hospital-wide review queue (any doctor takes any consult). Do consults ever need routing to a specific doctor/specialty in MVP? (Interacts with the staffing/rota requirement in §3A.3.)
+2. **Doctor assignment** — MVP assumes a shared hospital-wide review queue (any doctor takes any consult). Do consults ever need routing to a specific doctor/specialty in MVP? (Interacts with the staffing/rota requirement in §3A.3.)
 
 ---
 
