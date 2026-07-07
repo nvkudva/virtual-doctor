@@ -1,6 +1,6 @@
 # Virtual Doctor — Architecture Document (Source of Truth)
 
-**Version:** 1.3 (v1.1 aligned to PRD v0.2 — MVP-0/MVP-1 ladder, RA-1 gate, lifecycle edge cases, Consult Trace; v1.2 absorbs PRD UI-1 responsive layout + UI-2 native-shell readiness; v1.3 adds the `LlmProvider` seam, prompt rollout/rollback, Consult Trace scaling plan, and the phase dependency graph — findings from an external architecture review)
+**Version:** 1.4 (v1.1 aligned to PRD v0.2 — MVP-0/MVP-1 ladder, RA-1 gate, lifecycle edge cases, Consult Trace; v1.2 absorbs PRD UI-1 responsive layout + UI-2 native-shell readiness; v1.3 adds the `LlmProvider` seam, prompt rollout/rollback, Consult Trace scaling plan, and the phase dependency graph; v1.4 adds §11.4 PWA instant-load/app-shell/preload architecture, AP-8, DEC-17/DEC-18 — findings from an external architecture review)
 **Date:** 2026-07-07
 **Status:** Active — this document governs all implementation work.
 **Companion:** `docs/PRD.md` v0.2 (product requirements). Where this document and the PRD conflict on *how* to build, this document wins; on *what* to build, the PRD wins.
@@ -67,6 +67,7 @@ Audio streams flow **directly between the browser and the voice provider** over 
 | AP-5 | **Human-in-the-loop is structural** | The `prescriptions` table is only writable through the doctor-approval flow. The AI physically cannot publish a prescription. |
 | AP-6 | **Voice pipeline is avatar-ready** | Word timestamps and (where available) visemes flow through the pipeline from day one, even though the orb ignores them (PRD §6.5). |
 | AP-7 | **Config over code for tenancy and agents** | New hospital = DB row. New agent = config entry. Neither is a deploy. |
+| AP-8 | **App-shell first, not page-first** | The shell (chrome, theme tokens, `AppShell`, `MiraPresence` placeholder) is precached and paints from cache before any network call resolves; screens are reached by client-side navigation with speculative preloading, never a full page load. This is what makes the product feel installed, not browsed (§11.4). |
 
 ### 1.3 Deliberate seams (the only places we pre-invest in abstraction)
 
@@ -105,6 +106,8 @@ PRD v0.2 decided several formerly open questions itself (PRD §9.1) and left the
 | DEC-14 | **One open consult per patient per hospital** (PRD §3A.5) enforced by a **partial unique index** on `consults (patient_id, hospital_id) WHERE status IN ('active','pending_review')` — database-level, like all other invariants. | App code treats the conflict as "resume existing consult". Reversal: drop the index. |
 | DEC-15 | **Responsive strategy (PRD UI-1, MVP-0):** mobile-first CSS with **two canonical breakpoints** — `tablet ≥ 768px`, `desktop ≥ 1120px` — defined once in `packages/theme` (exported TS consts + documented media-query snippets) and used by name everywhere. Page-level reflow is owned by layout components (`AppShell`, the desk review layout): stacked single-column on phone → two/three-pane on desktop. **No user-agent/device sniffing, no separate mobile builds** — one build per app, CSS decides layout. | Two breakpoints cover phone/tablet/desktop per UI-1 without a grid-system dependency. Reversal: add a breakpoint constant. |
 | DEC-16 | **Native-shell readiness (PRD UI-2, later phase):** target wrapper is **Capacitor** (one codebase → Play Store + App Store; TWA remains an Android-only alternative). Binding MVP rules so this stays a packaging task, not a rewrite: (a) no browser-only APIs without a native equivalent in load-bearing paths; (b) platform capabilities only via `packages/platform` (seam 5) / `packages/voice` for mic; (c) UI never assumes browser chrome — every screen reachable via in-app navigation, no reliance on the URL bar or browser-back as the only way out; (d) push lands (MVP-1, DEC-5) behind the platform wrapper so web-push can later be joined by FCM/APNs. **No Capacitor dependency, config, or native project is added before its phase.** | Mirrors the avatar pattern: deferred, but the end-state. Reversal: none needed — the rules cost ~zero if the wrap never happens. |
+| DEC-17 | **Workbox via `injectManifest`, not `generateSW`** (both apps, `vite-plugin-pwa`), with an explicit per-route-class caching strategy matrix (§11.4) instead of one blanket strategy. `generateSW`'s defaults are tuned for generic sites, not a call-screen voice app with a hard latency budget (§6.1) that must never itself be cached. | `injectManifest` costs one hand-written service worker file per app vs. config-only, but is the only way to guarantee `NetworkOnly` on consult endpoints while still getting `CacheFirst` instant loads everywhere else. Reversal: switch to `generateSW` + custom runtime caching config — same cost either way, this just names the choice. |
+| DEC-18 | **TanStack Query cache persisted to IndexedDB** (`persistQueryClient` + an IndexedDB storage adapter) for stable, non-live data only: hospital theme/config, patient profile, records list/detail. Consult-in-progress and queue data are explicitly excluded — persisted stale data there is a correctness risk, not a UX win. | Makes repeat app launches paint real content immediately from disk instead of a blank shell + spinner while the network round-trips — the single biggest lever for "feels installed, not loading" on a warm return visit. Reversal: drop the persister plugin; TanStack Query still works in-memory-only. |
 
 ---
 
@@ -118,7 +121,7 @@ PRD v0.2 decided several formerly open questions itself (PRD §9.1) and left the
 | Styling | CSS Modules + design tokens as CSS variables (`packages/theme`). **No runtime CSS-in-JS. No Tailwind.** | — |
 | Data/state | TanStack Query v5 over `@supabase/supabase-js`; React state/context for UI-local state. **No Redux/Zustand/MobX.** | Pin major |
 | Validation | Zod — single schema source in `packages/core`, used by browser *and* Edge Functions | Pin major |
-| PWA | `vite-plugin-pwa` (Workbox) per app | Pin major |
+| PWA | `vite-plugin-pwa` (Workbox, `injectManifest` mode — DEC-17) per app; caching/preload architecture in §11.4 | Pin major |
 | Backend | Supabase: Postgres 15+ / RLS, Auth, Realtime, Storage, Edge Functions (Deno) | Managed |
 | AI | Anthropic API, `claude-fable-5`, streaming, structured JSON output | API version pinned in one const |
 | STT | Deepgram streaming WS (adapter) | — |
@@ -235,7 +238,7 @@ Voice differs only at the edges: STT produces the `turn` text; the streamed repl
 ### 5.5 Realtime & offline
 
 - Realtime: doctor queue only (MVP). Patient consult status updates via TanStack Query polling (30 s) + push later — do not add a second Realtime channel until profiling says polling hurts.
-- Offline (PWA): app shell + records list/detail cached (stale-while-revalidate). Consults require connectivity; the consult screen shows a clear offline state. No offline queueing of consult turns in MVP.
+- Offline (PWA): app shell + records list/detail cached. Consults require connectivity; the consult screen shows a clear offline state. No offline queueing of consult turns in MVP. Full caching-strategy matrix, preload behavior, and repeat-launch performance are specified in §11.4 — this bullet is the correctness rule (consults never cached); §11.4 is the performance architecture built around it.
 
 ### 5.6 Consult lifecycle timers (PRD §3A.5 — MVP-0 requirements)
 
@@ -508,6 +511,44 @@ Per-hospital daily consult quota + per-consult turn cap + per-call token cap, en
 - One operator dashboard query set (SQL in `docs/ops.md`): consults/day per hospital, p50/p95 voice latency, approval-with-no-edit rate, quota consumption — the PRD §8 metrics must be *measurable* from launch, not retrofitted.
 - **Consult Trace is the primary clinical observability surface** (§8.5): the operator audits 100 % of MVP-0 consults from it (RA-3), and RA-3's gate metrics (approval-with-minor-edits rate, median review time) come from `reviews` + `consult_events` — never from ad-hoc logging.
 
+### 11.4 PWA architecture: instant loading, app-shell & preload strategy (AP-8)
+
+§11.1's budget (LCP, JS size, Lighthouse score) measures whether the *first-ever* load is fast. This section is about the thing that actually reads as "app, not website": every load *after* the first, and every navigation inside the app, feeling instant because it was precomputed, precached, or preloaded before the user asked for it. Nothing here weakens the correctness rules already in place (consults are `NetworkOnly`, §5.5) — it only makes everything that's safe to cache aggressively cached.
+
+**App shell (precached, not fetched-then-rendered):**
+- The shell — `index.html`, the theme CSS variables, `AppShell` chrome, the `MiraPresence` placeholder — is Workbox-precached at build time (DEC-17, `injectManifest`) so a repeat visit paints the shell from the service worker cache with zero network round-trip, before Postgres/theme data even returns. This is the literal difference between "a page that loads" and "an app that opens."
+- Critical CSS (tokens + shell layout) is inlined in `index.html`; everything else is chunked and loaded async so nothing non-essential blocks first paint.
+- Manifest `display: "standalone"`, safe-area-inset CSS vars wired into `AppShell` from Phase 0 — no browser chrome, no URL bar, consistent with DEC-16's native-shell rules even before a native wrapper exists.
+
+**Runtime caching strategy matrix (Workbox, per resource class — not one blanket policy):**
+
+| Resource | Strategy | Why |
+|---|---|---|
+| Hashed build assets (JS/CSS/fonts) | `CacheFirst`, effectively immutable | Content-hashed filenames mean a cache hit is always correct — never re-fetch what can't have changed. |
+| Navigation requests (route HTML/shell) | `NetworkFirst` short timeout (~1 s) → cache fallback, via Workbox `NavigationRoute` + the Navigation Preload API | Fresh when online and fast; instant from cache the moment the network is slow or absent, without the SW itself stalling the request. |
+| Hospital theme/manifest (`tenant-manifest`, hospital row) | `StaleWhileRevalidate` | Correct branding paints instantly from cache (no flash of default theme), refreshes silently in the background. |
+| Records list/detail, patient profile | `StaleWhileRevalidate` **and** persisted in the TanStack Query IndexedDB cache (DEC-18) | Two layers: SW cache makes the HTTP request instant; the persisted query cache means React never even shows a loading state on a warm launch. |
+| Consult turn endpoints (`ai-consult`), doctor queue | `NetworkOnly` — never cached | Same rule as §5.5: correctness over speed where clinical state is live. |
+| Consult/prescription images | `CacheFirst` with an expiration/max-entries plugin | Instant repeat view; bounded cache size so it doesn't grow unbounded. |
+
+**Preload / prefetch (resource hints — starting the work before the tap, not after it):**
+- `rel="preconnect"` to the Supabase project URL and the hospital's configured voice-provider WSS endpoint, emitted on shell load — the TLS/WS handshake is already warm by the time a patient taps "Talk to Dr. Mira," rather than starting cold inside the §6.1 latency budget.
+- `rel="modulepreload"` for the consult route's JS chunk from the patient home/records screen, and for the review-screen chunk from the desk's queue — the one screen a user is statistically about to open is speculatively fetched while they're still looking at the current one, so the tap itself triggers a render, not a fetch-then-render.
+- Fonts self-hosted and `rel="preload"` (already decided, §11.1) — no FOIT/FOUT.
+- **Voice-token pre-warm**: `voice-token` is called optimistically the moment the consult screen mounts (before the patient taps "Talk"), so the STT/TTS session is already authorized when they start speaking — this shrinks perceived latency without changing anything the §6.1 budget measures.
+
+**Instant repeat launches (the single biggest lever for "app-like"):**
+- The DEC-18 persisted query cache means a returning user sees their real theme, profile, and records on screen immediately on cold app open, with a background refetch reconciling — never a blank shell + spinner on every launch, only on the very first one.
+- SW updates ship via `skipWaiting` + `clientsClaim` gated behind an explicit "update ready" toast/banner — the shell stays precache-fresh without ever silently reloading a patient mid-voice-turn.
+
+**Interaction-level app-likeness (small, compounding details):**
+- No tap-delay: `touch-action` set correctly on interactive primitives from Phase 0 (§10.2) — no reliance on a synthetic 300 ms click delay.
+- `Skeleton` (already a listed primitive, §10.2), never a bare spinner, on anything in the instant-paint path — perceived performance is part of this budget, not just measured performance.
+- View Transitions API (progressive enhancement, feature-detected — never blocked on) for in-app navigation (queue → review, home → consult) so moving between screens reads as a transition, not a page load; unsupported browsers fall back to an instant swap, not a missing feature.
+- **Back/forward-cache (bfcache) eligibility is a CI-checked budget item** alongside LCP/JS-size (§11.1): no `unload` listeners, no blocking `beforeunload`, no `Cache-Control: no-store` on navigable routes. This is what makes back-navigation between queue/consult/records instant rather than a re-fetch — and back-navigation is the doctor's and patient's most common action in this product.
+
+This section is binding from **Phase 0** (shell precache + resource-hint skeleton exist from day one, per the Phase 0 deliverables in §12) and is explicitly checked in **Phase 4**'s hardening pass (bfcache, standalone display, update-toast behavior, DEC-18 persistence) before pilot launch.
+
 ---
 
 ## 12. Implementation Phases
@@ -519,8 +560,8 @@ Phases map onto the PRD's release ladder (PRD §2): **Phases 0–4 = MVP-0** (va
 ### — MVP-0 (single pilot hospital, tenant seeded directly; multi-tenant *schema* from day one) —
 
 ### Phase 0 — Foundation (goal: an empty but real product skeleton)
-**Deliverables:** monorepo per §4; `packages/config` toolchain; `packages/theme` tokens (light/dark) incl. the named `tablet`/`desktop` breakpoint constants (DEC-15); `packages/platform` skeleton (§1.3 seam 5 — web implementations only); `packages/core` with consult state machine, contracts (§7.3) and i18n scaffold (tenant *parsing* code exists in `core` but subdomain wiring waits for Phase 6); CI (typecheck/lint/test/build/size-limit); both apps deploy to Cloudflare Pages (default project domains) showing a themed shell branded from seeded hospital config.
-**Accept:** `npm i && npm run build` green; both apps live and branded from seed data; CI enforces budgets.
+**Deliverables:** monorepo per §4; `packages/config` toolchain; `packages/theme` tokens (light/dark) incl. the named `tablet`/`desktop` breakpoint constants (DEC-15); `packages/platform` skeleton (§1.3 seam 5 — web implementations only); `packages/core` with consult state machine, contracts (§7.3) and i18n scaffold (tenant *parsing* code exists in `core` but subdomain wiring waits for Phase 6); CI (typecheck/lint/test/build/size-limit); both apps deploy to Cloudflare Pages (default project domains) showing a themed shell branded from seeded hospital config; **PWA shell foundation (§11.4, AP-8)**: `injectManifest` Workbox setup (DEC-17) precaching the app shell, manifest `display: standalone` + safe-area insets wired into `AppShell`, and the resource-hint skeleton (`preconnect` to Supabase, self-hosted preloaded fonts) — the caching-strategy matrix itself fills in as each resource class is introduced in later phases.
+**Accept:** `npm i && npm run build` green; both apps live and branded from seed data; CI enforces budgets; a second (offline, cache-only) load of either app still paints the branded shell from the SW precache.
 **Do not build yet:** any Supabase table beyond `hospitals`, any AI call, any voice code, subdomain plumbing.
 
 ### Phase 1 — Data platform & auth (goal: tenancy is real and provably isolated)
@@ -539,8 +580,8 @@ Phases map onto the PRD's release ladder (PRD §2): **Phases 0–4 = MVP-0** (va
 **Do not build yet:** desk voice, avatar work of any kind.
 
 ### Phase 4 — MVP-0 hardening & pilot launch (goal: live with the design-partner hospital)
-**Deliverables:** quotas + `usage_events` + operator dashboard queries (PRD §8 and RA-2/RA-3 gate metrics measurable); Sentry + Web Vitals; security pass (headers/CSP, dependency audit, RLS re-review); accessibility pass; responsive pass — both apps exercised at phone/tablet/desktop widths against §10.1 rule 6 (UI-1); a DEC-16 readiness check (no raw capability APIs outside `packages/platform`/`voice`, no browser-chrome-dependent flows); PWA install polish + offline records; load sanity test (50 concurrent consults); pilot runbook (rota/SLA config for the hospital, incident + breach-notification runbooks).
-**Accept:** Lighthouse ≥ 90 both apps; RA-2 (completion/voice rates) and RA-3 (approval-with-minor-edits, median review time) computable from the dashboard on day one of the pilot; operator can audit any consult end-to-end from its trace.
+**Deliverables:** quotas + `usage_events` + operator dashboard queries (PRD §8 and RA-2/RA-3 gate metrics measurable); Sentry + Web Vitals; security pass (headers/CSP, dependency audit, RLS re-review); accessibility pass; responsive pass — both apps exercised at phone/tablet/desktop widths against §10.1 rule 6 (UI-1); a DEC-16 readiness check (no raw capability APIs outside `packages/platform`/`voice`, no browser-chrome-dependent flows); **PWA hardening pass (§11.4)**: full caching-strategy matrix in place and verified per resource class, DEC-18 query-cache persistence live for theme/profile/records, preload/prefetch hints (route modulepreload, voice-token pre-warm) measured to actually shave latency, SW update-toast flow tested (no silent mid-consult reload), bfcache-eligibility check added to CI; PWA install polish + offline records; load sanity test (50 concurrent consults); pilot runbook (rota/SLA config for the hospital, incident + breach-notification runbooks).
+**Accept:** Lighthouse ≥ 90 both apps; RA-2 (completion/voice rates) and RA-3 (approval-with-minor-edits, median review time) computable from the dashboard on day one of the pilot; operator can audit any consult end-to-end from its trace; a warm repeat launch of either app paints real (not skeleton) theme/profile/records content before any network response returns; both apps pass a bfcache eligibility check in CI.
 **Do not build yet:** anything in MVP-1 below.
 
 ### — MVP-1 (widen once the loop is proven; entry criteria = RA-2/RA-3 gates holding in the pilot, PRD §2A) —
