@@ -1,6 +1,6 @@
 # Virtual Doctor — Architecture Document (Source of Truth)
 
-**Version:** 1.2 (v1.1 aligned to PRD v0.2 — MVP-0/MVP-1 ladder, RA-1 gate, lifecycle edge cases, Consult Trace; v1.2 absorbs PRD UI-1 responsive layout + UI-2 native-shell readiness)
+**Version:** 1.3 (v1.1 aligned to PRD v0.2 — MVP-0/MVP-1 ladder, RA-1 gate, lifecycle edge cases, Consult Trace; v1.2 absorbs PRD UI-1 responsive layout + UI-2 native-shell readiness; v1.3 adds the `LlmProvider` seam, prompt rollout/rollback, Consult Trace scaling plan, and the phase dependency graph — findings from an external architecture review)
 **Date:** 2026-07-07
 **Status:** Active — this document governs all implementation work.
 **Companion:** `docs/PRD.md` v0.2 (product requirements). Where this document and the PRD conflict on *how* to build, this document wins; on *what* to build, the PRD wins.
@@ -77,6 +77,7 @@ These are the four abstractions we build *before* we strictly need them, because
 3. **Agent registry** — agents are config (prompt + model + tools + policies), routed by an orchestrator (§7). Splitting the MVP's single LLM into specialist agents is config, not refactor.
 4. **i18n scaffolding** — all user-facing strings go through a message catalog from day one; English is the only shipped locale in MVP (Kannada/Telugu/Hindi later).
 5. **Platform capability layer** (`packages/platform`) — PRD UI-2 makes native app containers (Capacitor/TWA) the later-phase end-state, so browser capabilities that differ under a native shell — notifications/push subscription, install prompt, share, persistent storage, in-app back navigation — are accessed only through thin wrappers here, never called raw from components. Mic acquisition already lives behind `packages/voice`. This is wrappers, not a plugin framework: each is a small module with a web implementation today and room for a native one later.
+6. **`LlmProvider` interface** (`supabase/functions/_shared/llm/`) — every place the orchestrator calls a model goes through one adapter interface (`complete(prompt, opts): AsyncIterable<Token>` plus a structured-output variant), mirroring `VoiceProvider` (§6.3). MVP ships exactly one adapter, `anthropic.ts` (`claude-fable-5`), and nothing else. This is not "multi-model support" — it is the same reversibility bet already made for STT/TTS: the LLM call is the single most expensive and most safety-critical dependency in the system, and it is the one place a vendor or pricing change would otherwise force a rewrite instead of a config change. **No code outside the adapter may reference the Anthropic SDK, endpoint, or response shape directly** — the orchestrator and agent registry (§7) only ever see the adapter interface.
 
 Everything else follows YAGNI. Specifically **not** abstracted in MVP: no repository pattern over Supabase, no event bus, no microservices, no GraphQL, no custom design-system framework, no monorepo tooling beyond npm workspaces until build times demand it.
 
@@ -163,7 +164,8 @@ virtual-doctor/
 │   │   ├── ai-consult/           # Mira orchestrator (§7)
 │   │   ├── voice-token/
 │   │   ├── tenant-manifest/
-│   │   └── _shared/              # agent registry, prompt assembly, safety rules, contracts (imports packages/core schemas)
+│   │   └── _shared/              # agent registry, prompt assembly, safety rules, contracts,
+│   │                             #   llm/ (LlmProvider adapters, §1.3 seam 6) — imports packages/core schemas
 │   └── seed/                     # dev seed: 2 hospitals, doctors, sample patients
 ├── docs/                         # PRD.md, ARCHITECTURE.md (this file), ADRs (docs/adr/NNN-*.md)
 └── .github/workflows/
@@ -430,6 +432,7 @@ The trace is a **read model, not new write paths**: every step of a consult alre
 - **Access** follows the RLS matrix (O-3): doctors/admins see their hospital's traces; the operator reads cross-hospital via console/SQL in MVP-0 (the operator dashboard queries in `docs/ops.md` are trace queries); patients see UC-3 record views, never the internal trace.
 - **Export** (O-4): one RPC `export_consult_trace(consult_id)` returns the full trace as JSON; the printable view renders the same payload client-side.
 - **Invariant**: nothing in any flow may write consult state outside these tables. If it isn't in the trace, it didn't happen — this is checked in review, and the Phase-2 E2E asserts the trace is complete for a full consult lifecycle.
+- **Scaling plan (do not build in MVP-0, but name it now so it isn't improvised under load):** the `consult_trace` view (a live `UNION ALL` over the source tables) and the O-2 full-text search over live message/draft tables are the right MVP-0 shape — 100% operator audit coverage over one pilot hospital's volume. They stop being the right shape once either (a) the view's query time visibly regresses in the Phase 4 dashboard queries (§11.3), or (b) a second real tenant is onboarded (Phase 6). The trigger for revisiting is explicit: **if either condition is hit, the next step is a materialized `consult_trace` refreshed incrementally (trigger-appended, not full-recompute) plus moving O-2 search to a dedicated text index (Postgres `tsvector` column with a GIN index at minimum; an external search service only if that's insufficient) — not a redesign of the trace's source-of-truth tables**, which stay append-only and unchanged. Whichever phase hits the trigger owns writing the migration; this is called out here so it's a planned phase deliverable, not a fire drill.
 
 ---
 
@@ -551,8 +554,38 @@ Phases map onto the PRD's release ladder (PRD §2): **Phases 0–4 = MVP-0** (va
 **Deliverables:** subdomain tenant resolution wired (T-1) + wildcard DNS on Cloudflare Pages; `tenant-manifest` per-tenant PWA manifests + branded installs; operator onboarding runbook (< 1 h per hospital, executed once end-to-end for a fresh tenant); patient photo sharing (per-hospital bucket, Claude vision findings into the assessment, `consult_media`, in the trace); web push on approval; **Receptionist agent split** (own registry entry per §7.2).
 **Accept:** a brand-new tenant is live on its own subdomains with zero code changes; photo consult E2E passes; push received on approval; agent split verified as config-only (no orchestrator refactor in the diff).
 
-### Post-MVP phase ladder (direction, not commitment)
-P7 Pharmacy + Lab agents, admin UI · P8 Specialist agents + Supervisor + feedback loop · P9 i18n locales (Kannada/Telugu/Hindi voice+text) · P10 Communication Manager, outbound Mira call, doctor-patient video · P11 `AvatarPresence` · P12 native app containers for both apps (Capacitor per DEC-16, app-store distribution — PRD UI-2; native push/storage/mic implementations slot in behind `packages/platform` and `packages/voice`).
+### 12.7 Phase dependency graph & parallel execution
+
+§12's phases read as a numbered list, which reads as strictly sequential — that's true *across* phases (each phase's acceptance checks gate the next), but it hides real parallelism *within* and *across* phases that matters once more than one engineer or agent is executing this plan at once. This section makes both explicit.
+
+**Hard sequential dependencies (cannot start before the prior phase's acceptance checks pass):**
+```
+Phase 0 → Phase 1 → Phase 2 (text loop) → Phase 3 (voice) → Phase 4 (hardening/launch)
+Phase 4 → Phase 5 (desk voice) → Phase 6 (multi-tenant delivery)
+```
+These are hard because each depends on a runtime contract the prior phase produces (Phase 1's schema/RLS before any data-touching feature; Phase 2's working text consult loop before voice is layered on top of the same orchestrator; Phase 4's live pilot before widening to a second tenant).
+
+**Already-explicit parallel split (Phase 2):** the patient-side consult loop and the Doctor Desk are independently buildable; only the desk build is gated behind **G-1**. A team can build/ship the patient-side portion of Phase 2 while G-1 is still being pursued — this was already correct in v1.2, just restated here as the pattern for the rest of this section.
+
+**Sub-phase work packages (same phase, splittable across parallel workstreams, coordinate only at the named seam):**
+- **Phase 1** is one phase but four independent packages behind one seam (the migration sequence number): (a) schema + RLS policies, (b) the state-machine trigger + `consult_events` + `consult_trace` view, (c) Supabase Auth wiring + profile wizard, (d) seed script + RLS negative-test suite. Running these in parallel is safe *only* if migration numbering is coordinated (one owner rebases/renumbers before merge) — the risk isn't the work, it's two agents claiming the same migration number.
+- **Phase 4** similarly splits into independently ownable packages that only share the acceptance checklist, not code: observability (usage_events, dashboard, Sentry), security/accessibility pass, responsive pass (§10.1 rule 6 verification), PWA/offline polish, pilot runbook docs.
+- **Phase 6** splits into: subdomain/DNS + tenant-manifest delivery, photo sharing (`consult_media` + vision), web push, and the Receptionist agent split — these touch disjoint parts of the system (routing/hosting, storage, notifications, agent registry) and can run fully in parallel once Phase 5 is accepted.
+
+**Soft/opportunistic parallelism (may start early, at risk, before its formal gate):** groundwork for a later phase that doesn't touch runtime behavior can start during the prior phase without violating "do not build yet" — e.g. drafting the `VoiceProvider` adapter interface and its tests during Phase 2 (before Phase 3 formally starts) is fine because it's inert until wired into the orchestrator; actually calling Deepgram/ElevenLabs from a live consult before Phase 3's acceptance checks is not. The distinguishing rule: **inert scaffolding may start early; anything reachable from a live user flow may not.**
+
+**Post-MVP phase ladder (direction, not commitment) — each phase below needs an explicit entry gate before it starts, not just a place in the list:**
+
+| Phase | Scope | Entry gate (minimum) |
+|---|---|---|
+| P7 | Pharmacy + Lab agents, admin UI | Phase 6 accepted; at least one hospital has requested lab-report or pharmacy-check functionality (demand signal, not just roadmap order) |
+| P8 | Specialist agents + Supervisor + feedback loop | `LlmProvider` and agent-registry fan-out/fan-in semantics (concurrent specialist calls, partial timeout/conflict handling — flagged as an open design question, not yet solved by today's single-call orchestrator) are designed *before* this phase starts, not during it |
+| P9 | i18n locales (Kannada/Telugu/Hindi voice+text) | A non-English-speaking pilot hospital or explicit demand signal exists; i18n catalog scaffolding (already in place since Phase 0) has zero hardcoded-string violations in CI |
+| P10 | Communication Manager, outbound Mira call, doctor-patient video | P7/P8 stable in production for at least one full pilot cycle (this phase adds the largest new safety/consent surface — outbound calls — and should not land on an unproven agent base) |
+| P11 | `AvatarPresence` | `<MiraPresence>` contract (§10.3) has had zero breaking changes requested by any consumer across all prior phases — proof the seam actually held |
+| P12 | Native app containers (Capacitor, DEC-16) | The DEC-16 readiness check (§ Phase 4) has passed in every phase since Phase 4 with zero regressions — i.e. this is packaging, confirmed cheap, not a rewrite in disguise |
+
+If an entry gate isn't met when a phase's turn comes up, the answer is to fix the gate or explicitly re-scope — not to start building anyway because it's next on the list.
 
 ---
 
@@ -589,8 +622,13 @@ Baseline (DEC-10): **India-first**. HIPAA/ABDM are design considerations — the
 - Never use the service role key outside Edge Functions. Never interpolate SQL.
 
 ### 14.4 AI / prompts
-- Prompts are versioned code (`_shared/agents/prompts/`), reviewed like code, with golden-transcript tests: a fixture suite of consult scenarios (common cases, allergy conflict, red flags, prompt-injection attempts from the patient) runs against schema-validity and safety assertions on every prompt change. Model/params referenced from config only — never hardcoded at call sites.
+- Prompts are versioned code (`_shared/agents/prompts/`), reviewed like code, with golden-transcript tests: a fixture suite of consult scenarios (common cases, allergy conflict, red flags, prompt-injection attempts from the patient) runs against schema-validity and safety assertions on every prompt change. Model/params referenced from config only — never hardcoded at call sites, and always through `LlmProvider` (§1.3 seam 6).
 - Treat all user input as untrusted prompt content: patient text is delimited and never concatenated into system-level instructions.
+- **Prompt rollout is a deploy, not a git merge.** A merged prompt change is not live until it is pointed at from `hospitals.ai_config.prompt_version` (or the platform default). "Reviewed like code" governs whether a prompt change is *correct*; it says nothing about whether it is *safe to turn on everywhere at once* — for a system where the prompt is the clinical behavior, those are different questions and this document treats them as different steps:
+  1. **Canary by tenant, not by traffic %**: land the new prompt version behind an explicit version id; flip exactly one hospital's `ai_config.prompt_version` to it (the pilot hospital in MVP-0; a low-volume tenant once multi-tenant); watch RA-3's signals (approval-with-minor-edits rate, safety flags, review time) for that hospital specifically before flipping the platform default.
+  2. **Rollback is a config write, not a redeploy**: the previous prompt version stays addressable (versions are never deleted, only superseded as the default) so an incident response is "point `ai_config.prompt_version` back," not "revert and redeploy the Edge Function."
+  3. **A prompt-version bump to a clinically material prompt (safety rules, dosing, red-flag list) requires the golden-transcript suite to pass *and* is logged as a `consult_events`-adjacent `prompt_change` audit row (agent id, old/new version, who approved) — this is deferred infrastructure, not needed before Phase 2, but the `ai_config.prompt_version` field and the version-never-deleted rule should exist from Phase 2 onward so this isn't retrofitted under incident pressure.
+- This same per-hospital `ai_config` override is the general canary/rollout primitive for any future-phase feature gated by tenant (e.g. enabling the Receptionist split or a new specialist agent for one hospital before defaulting it platform-wide) — see §12.7.
 
 ### 14.5 Process
 - Trunk-based; small PRs (one concern); PR template asks: phase compliance? new dependency justified? contract change reflected in ARCHITECTURE.md? tests?
