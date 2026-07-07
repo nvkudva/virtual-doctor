@@ -1,6 +1,6 @@
 # Virtual Doctor — Architecture Document (Source of Truth)
 
-**Version:** 1.5 (v1.1 aligned to PRD v0.2 — MVP-0/MVP-1 ladder, RA-1 gate, lifecycle edge cases, Consult Trace; v1.2 absorbs PRD UI-1 responsive layout + UI-2 native-shell readiness; v1.3 adds the `LlmProvider` seam, prompt rollout/rollback, Consult Trace scaling plan, and the phase dependency graph; v1.4 adds §11.4 PWA instant-load/app-shell/preload architecture, AP-8, DEC-17/DEC-18; v1.5 renames the "Doctor Desk" app to **Doctor App / Doctor PWA** throughout — folder `apps/doctor/`, subdomain `⟨slug⟩.doctor.⟨domain⟩` — no scope change, naming only)
+**Version:** 1.6 (v1.1 aligned to PRD v0.2 — MVP-0/MVP-1 ladder, RA-1 gate, lifecycle edge cases, Consult Trace; v1.2 absorbs PRD UI-1 responsive layout + UI-2 native-shell readiness; v1.3 adds the `LlmProvider` seam, prompt rollout/rollback, Consult Trace scaling plan, and the phase dependency graph; v1.4 adds §11.4 PWA instant-load/app-shell/preload architecture, AP-8, DEC-17/DEC-18; v1.5 renames the "Doctor Desk" app to **Doctor App / Doctor PWA** — folder `apps/doctor/`; v1.6 merges in decisions made on `main` in parallel — DEC-1 domain scheme changes to one subdomain + path-scoped apps (`⟨slug⟩.vd.app/patient` \| `/doctor`, superseding the earlier two-subdomain scheme, with §5.1/§5.2/DEC-12 updated for the shared-origin session model), DEC-2 voice provider changes to Deepgram + Google Chirp 3 HD, and §13 Compliance is removed pending a later re-add — no scope change otherwise, no scope change from the naming rename)
 **Date:** 2026-07-07
 **Status:** Active — this document governs all implementation work.
 **Companion:** `docs/PRD.md` v0.2 (product requirements). Where this document and the PRD conflict on *how* to build, this document wins; on *what* to build, the PRD wins.
@@ -27,7 +27,7 @@ This document is the **single source of truth** for every agent (human or AI) bu
                         ┌────────────────────────────────────────────┐
                         │                 Browsers                   │
                         │  Patient PWA          Doctor PWA           │
-                        │  ⟨slug⟩.patient.⟨D⟩   ⟨slug⟩.doctor.⟨D⟩   │
+                        │  ⟨slug⟩.vd.app/patient  ⟨slug⟩.vd.app/doctor │
                         └──────┬───────────────────────┬─────────────┘
              HTTPS / WSS       │                       │
         ┌──────────────────────┼───────────────────────┼──────────────────┐
@@ -49,8 +49,8 @@ This document is the **single source of truth** for every agent (human or AI) bu
                             ▼
         ┌───────────────┐  ┌───────────────┐  ┌────────────────┐
         │ Anthropic API │  │ Streaming STT │  │ Streaming TTS  │
-        │ claude-fable-5│  │ (Deepgram)    │  │ (ElevenLabs /  │
-        │               │  │               │  │  Azure Neural) │
+        │ claude-fable-5│  │ (Deepgram)    │  │ (Google Chirp  │
+        │               │  │               │  │  3 HD)         │
         └───────────────┘  └───────────────┘  └────────────────┘
 ```
 
@@ -90,8 +90,8 @@ PRD v0.2 decided several formerly open questions itself (PRD §9.1) and left the
 
 | # | Decision | Rationale / reversal cost |
 |---|---|---|
-| DEC-1 | Subdomain scheme `⟨slug⟩.patient.⟨domain⟩` and `⟨slug⟩.doctor.⟨domain⟩`; the apex domain is an env value (`VITE_VD_DOMAIN`), no code depends on a literal domain. | Matches PRD examples. Reversal: DNS + env change only. |
-| DEC-2 | Voice providers: **Deepgram** (streaming STT, `nova`-family model) + **ElevenLabs Flash** (streaming TTS with word timestamps) as MVP defaults, **Azure Neural TTS** as the configured cost-fallback. Both behind the `VoiceProvider` interface. Browser Web Speech API is a dev/demo fallback only. | Best latency + empathy per unit cost as of mid-2026. Reversal: implement one adapter file. |
+| DEC-1 | Domain scheme: **one subdomain per hospital, apps as path segments** — `⟨slug⟩.vd.app/patient` and `⟨slug⟩.vd.app/doctor` (extensible to future sub-apps, e.g. `/pharmacy`). One wildcard cert/DNS entry covers all tenants; the subdomain resolves the tenant, the first path segment selects the app. The apex domain is an env value (`VITE_VD_DOMAIN`), no code depends on a literal domain. | Decided in PRD review (PRD §9.1) — one wildcard entry instead of two per tenant, and both apps share an origin (simpler cookie/session model, §5.2). Reversal: DNS + routing-rule change only. |
+| DEC-2 | Voice providers: **Deepgram** (streaming STT, Nova-3 model) + **Google Chirp 3 HD** (streaming TTS) as MVP defaults. Both behind the `VoiceProvider` interface. Browser Web Speech API is a dev/demo fallback only. | Decided in PRD review (PRD §9.1): Deepgram's signup credit covers MVP-0 pilot volume outright; Chirp 3 HD's free tier (1M characters/month) covers ~250 five-minute consults/month at no cost with strong voice quality; per-consult cost ~₹6–12. Reversal: implement one adapter file — e.g. to Sarvam AI for Indic-native TTS once the language fast-follows (§9.1) are underway. |
 | DEC-3 | **Transcripts only** — raw patient audio is never persisted in MVP. | Lighter privacy burden (PRD rec). Reversal: add a storage sink to the STT adapter + consent copy. |
 | DEC-4 | **English only at launch**, all strings through the i18n catalog. | PRD rec. Reversal: add locale files. |
 | DEC-5 | In-app status is the required notification channel; **web push ships in MVP-1** (not blocking earlier phases). | Push is additive; service worker already exists for PWA. |
@@ -99,9 +99,9 @@ PRD v0.2 decided several formerly open questions itself (PRD §9.1) and left the
 | DEC-7 | Doctor app coordinator-mode **voice ships in MVP-1** (Doctor app launches visual-first in MVP-0). | Decided in PRD §9.1 — reuses the proven patient voice stack. |
 | DEC-8 | **Patient photo sharing ships in MVP-1**, analyzed via Claude vision; video deferred. | Decided in PRD §9.1 — not part of the smallest loop-validating build. |
 | DEC-9 | Package manager **npm** (workspaces); **no Turborepo** until cold build exceeds ~60 s. | Smallest tool surface. Reversal: add turbo.json, zero code change. |
-| DEC-10 | Target market is **India-first** (₹ economics in PRD): compliance baseline is DPDP Act 2023 + Telemedicine Practice Guidelines 2020, with ABDM and HIPAA as design considerations, not deliverables (§13). | Reversal: compliance section widens; architecture already accommodates it. |
+| DEC-10 | Target market is **India-first** (₹ economics in PRD): compliance baseline is DPDP Act 2023 + Telemedicine Practice Guidelines 2020, with ABDM and HIPAA as design considerations, not deliverables (compliance section removed for now — to be re-added). | Reversal: compliance section widens; architecture already accommodates it. |
 | DEC-11 | Model: `claude-fable-5` primary, per-hospital override via `hospitals.ai_config.model`. Vision (photo analysis) uses the same model. | PRD A-2. |
-| DEC-12 | Hosting: static apps on **Cloudflare Pages** (two projects; default project domains in MVP-0, wildcard tenant subdomains wired in MVP-1); Supabase for everything else. | Reversal: any static host works — the apps are pure static builds. |
+| DEC-12 | Hosting: static apps on **Cloudflare Pages** (two projects — patient, doctor — fronted by one custom domain with path-based routing rules mapping `/patient/*` → the patient project and `/doctor/*` → the doctor project; default project domains in MVP-0, wildcard tenant subdomain + path routing wired in MVP-1 per DEC-1); Supabase for everything else. | Reversal: any static host works — the apps are pure static builds; the path-routing rule is the one Cloudflare-specific piece. |
 | DEC-13 | Lifecycle timers (review SLA, abandonment, expiry — PRD §3A.5) run as **`pg_cron` jobs inside Postgres** calling SQL functions that write `consult_events` and flip statuses. No external scheduler, no queue infrastructure. | Timers are per-hospital config read from `hospitals.ai_config`. Reversal: swap cron jobs for a worker — the SQL functions stay. |
 | DEC-14 | **One open consult per patient per hospital** (PRD §3A.5) enforced by a **partial unique index** on `consults (patient_id, hospital_id) WHERE status IN ('active','pending_review')` — database-level, like all other invariants. | App code treats the conflict as "resume existing consult". Reversal: drop the index. |
 | DEC-15 | **Responsive strategy (PRD UI-1, MVP-0):** mobile-first CSS with **two canonical breakpoints** — `tablet ≥ 768px`, `desktop ≥ 1120px` — defined once in `packages/theme` (exported TS consts + documented media-query snippets) and used by name everywhere. Page-level reflow is owned by layout components (`AppShell`, the Doctor app's review layout): stacked single-column on phone → two/three-pane on desktop. **No user-agent/device sniffing, no separate mobile builds** — one build per app, CSS decides layout. | Two breakpoints cover phone/tablet/desktop per UI-1 without a grid-system dependency. Reversal: add a breakpoint constant. |
@@ -125,7 +125,7 @@ PRD v0.2 decided several formerly open questions itself (PRD §9.1) and left the
 | Backend | Supabase: Postgres 15+ / RLS, Auth, Realtime, Storage, Edge Functions (Deno) | Managed |
 | AI | Anthropic API, `claude-fable-5`, streaming, structured JSON output | API version pinned in one const |
 | STT | Deepgram streaming WS (adapter) | — |
-| TTS | ElevenLabs streaming (adapter); Azure Neural adapter as fallback | — |
+| TTS | Google Chirp 3 HD streaming (adapter) | — |
 | Tests | Vitest (unit), Testing Library (component), Playwright (E2E smoke), pgTAP or SQL scripts (RLS tests) | — |
 | Lint/format | ESLint (typescript-eslint, react-hooks) + Prettier, single root config in `packages/config` | — |
 | CI | GitHub Actions: typecheck + lint + unit tests + build on every PR; RLS tests on schema changes | — |
@@ -190,11 +190,11 @@ virtual-doctor/
 
 ### 5.1 Tenant resolution
 
-*(Design is MVP-0 — every table, policy, and theme token is tenant-scoped from the first migration. Delivery — subdomain resolution, per-tenant manifests, onboarding — ships in Phase 6/MVP-1; MVP-0 seeds the single pilot hospital directly and the apps load its config by env-configured slug.)*
+*(Design is MVP-0 — every table, policy, and theme token is tenant-scoped from the first migration. Delivery — subdomain + path resolution, per-tenant manifests, onboarding — ships in Phase 6/MVP-1; MVP-0 seeds the single pilot hospital directly and the apps load its config by env-configured slug.)*
 
-1. Browser loads `citycare.patient.⟨D⟩`. App parses the subdomain → slug `citycare` (in `packages/core/tenant.ts`; the *only* place subdomain parsing exists).
+1. Browser loads `citycare.vd.app/patient` (or `/doctor`). The routing layer (DEC-12) maps the path segment to the correct static app *before* any app code runs; the app itself then parses the subdomain → slug `citycare` (in `packages/core/tenant.ts`; the *only* place subdomain parsing exists) — the path segment is a routing concern, not something app code re-derives.
 2. App fetches the hospital row (public read of `id, slug, name, logo_url, theme` only — RLS exposes nothing else anonymously) and applies theme tokens by setting CSS variables on `:root`.
-3. `tenant-manifest` Edge Function serves `manifest.webmanifest` per tenant (name, icons, theme color) so each hospital's install is branded.
+3. `tenant-manifest` Edge Function serves a `manifest.webmanifest` **per tenant *and* per app** (name, icons, theme color, and a `scope`/`start_url` of `/patient` or `/doctor`) so each hospital's two installs are independently installable PWAs — despite sharing an origin, the manifest `scope` keeps them as two separate home-screen apps, not one app with two screens.
 4. The hospital `id` is attached to every consult at creation *server-side* (the Edge Function resolves slug → id itself; the client's claim is never trusted).
 
 ### 5.2 Auth & session
@@ -202,7 +202,7 @@ virtual-doctor/
 - Patients: Supabase Google OAuth. First sign-in triggers the profile wizard (`patient_details` row).
 - Doctors: email/password, provisioned by the operator (no self-signup path exists in the UI or API).
 - JWT custom claims (set via Supabase auth hook): `role`, and memberships are resolved by RLS via the `memberships` table (not stuffed into the token, so revocation is immediate).
-- Session persists across PWA launches (Supabase default localStorage persistence is acceptable; tokens are origin-scoped per subdomain — this is why patient and doctor are separate URL families).
+- Session persists across PWA launches (Supabase default localStorage persistence is acceptable). **Under the path-scoped domain scheme (DEC-1), patient and doctor share one origin per hospital** — unlike the earlier two-subdomain design, browser storage is no longer origin-isolated between them. Session/role separation is therefore an **application-level rule, not a browser one**: the Supabase client instance, its localStorage key prefix, and the JWT's `role` claim are namespaced per app (`patient`/`doctor`) so a token issued for one can never be read or reused by the other, and RLS is still the actual authorization boundary (AP-2) regardless. This is checked in the Phase 1 RLS/auth test suite, not assumed from same-origin isolation.
 
 ### 5.3 The consult turn (text or voice) — one code path
 
@@ -272,7 +272,7 @@ Measured and logged per turn (§11.3). Any change that regresses p50 latency is 
 1. Mic audio streams browser → Deepgram over WSS (token from `voice-token`, TTL ≤ 60 s, scoped per consult). Interim transcripts render live.
 2. End-of-speech (Deepgram endpointing, with tap-to-finish fallback) → final transcript → POST to `ai-consult`.
 3. Reply streams back over SSE. The client-side **sentence splitter** (in `packages/voice`) forwards each completed sentence to the TTS adapter immediately — speech starts on sentence 1 while the LLM is still writing sentence 3.
-4. TTS adapter returns audio chunks **plus word-level timestamps** (ElevenLabs `with_timestamps`; visemes where provider supports). These feed the `MiraPresence` state machine and are retained in the pipeline for the future avatar (AP-6). The orb consumes only coarse state; the timestamps still flow.
+4. TTS adapter returns audio chunks **plus word-level timestamps** (Chirp 3 HD's timepoint support; visemes where provider supports). These feed the `MiraPresence` state machine and are retained in the pipeline for the future avatar (AP-6). The orb consumes only coarse state; the timestamps still flow.
 5. Barge-in: if the patient starts speaking while Mira speaks, playback pauses and the turn machine returns to `listening`. (Simple pause, not duplex — good enough for MVP.)
 
 ### 6.3 `VoiceProvider` interface (in `packages/voice`)
@@ -297,7 +297,7 @@ interface VoiceProvider {
 }
 ```
 
-Adapters: `deepgram.ts`, `elevenlabs.ts`, `azure-tts.ts`, `webspeech.ts` (dev only). Provider selection comes from hospital config with platform default. **No code outside the adapters may reference a provider SDK or endpoint.**
+Adapters: `deepgram.ts`, `chirp.ts`, `webspeech.ts` (dev only). Provider selection comes from hospital config with platform default. **No code outside the adapters may reference a provider SDK or endpoint.**
 
 ### 6.4 Turn-taking state machine (in `packages/voice`, consumed by both apps)
 
@@ -441,7 +441,7 @@ The trace is a **read model, not new write paths**: every step of a consult alre
 
 ## 9. Multi-Tenancy Summary
 
-- Tenant = `hospitals` row; resolved from subdomain (§5.1 — delivery in MVP-1; MVP-0 uses an env-configured slug for the pilot); enforced by RLS (§8.3); themed by CSS variables + per-tenant manifest (§5.1).
+- Tenant = `hospitals` row; resolved from subdomain, app resolved from path segment (§5.1, DEC-1 — delivery in MVP-1; MVP-0 uses an env-configured slug for the pilot); enforced by RLS (§8.3); themed by CSS variables + per-tenant, per-app manifest (§5.1).
 - A patient with accounts at two hospitals has two `memberships`; data never crosses (T-4).
 - Per-hospital config surface (all in `hospitals` row): `theme` (colors/logo/name), `ai_config` (model override, voice persona id, quotas). Nothing else is per-hospital in MVP.
 
@@ -562,7 +562,7 @@ Phases map onto the PRD's release ladder (PRD §2): **Phases 0–4 = MVP-0** (va
 ### Phase 0 — Foundation (goal: an empty but real product skeleton)
 **Deliverables:** monorepo per §4; `packages/config` toolchain; `packages/theme` tokens (light/dark) incl. the named `tablet`/`desktop` breakpoint constants (DEC-15); `packages/platform` skeleton (§1.3 seam 5 — web implementations only); `packages/core` with consult state machine, contracts (§7.3) and i18n scaffold (tenant *parsing* code exists in `core` but subdomain wiring waits for Phase 6); CI (typecheck/lint/test/build/size-limit); both apps deploy to Cloudflare Pages (default project domains) showing a themed shell branded from seeded hospital config; **PWA shell foundation (§11.4, AP-8)**: `injectManifest` Workbox setup (DEC-17) precaching the app shell, manifest `display: standalone` + safe-area insets wired into `AppShell`, and the resource-hint skeleton (`preconnect` to Supabase, self-hosted preloaded fonts) — the caching-strategy matrix itself fills in as each resource class is introduced in later phases.
 **Accept:** `npm i && npm run build` green; both apps live and branded from seed data; CI enforces budgets; a second (offline, cache-only) load of either app still paints the branded shell from the SW precache.
-**Do not build yet:** any Supabase table beyond `hospitals`, any AI call, any voice code, subdomain plumbing.
+**Do not build yet:** any Supabase table beyond `hospitals`, any AI call, any voice code, subdomain/path routing plumbing.
 
 ### Phase 1 — Data platform & auth (goal: tenancy is real and provably isolated)
 **Deliverables:** full schema + RLS (§8, incl. `consult_events`, the `consult_trace` view, the state-machine trigger, and the one-open-consult index) as migrations; seed script (2 hospitals — pilot + a synthetic second tenant to keep isolation honest — 2 doctors each, sample patients); Supabase Auth wired (Google for patient app, email/pw for Doctor app); profile wizard with 18+ DOB enforcement (§5.6); generated DB types in `packages/api` + base query hooks; RLS negative-test suite in CI.
@@ -575,7 +575,7 @@ Phases map onto the PRD's release ladder (PRD §2): **Phases 0–4 = MVP-0** (va
 **Do not build yet:** any STT/TTS, Doctor app voice, images, push, Receptionist agent.
 
 ### Phase 3 — Patient voice (goal: the product's core experience at target latency)
-**Deliverables:** `packages/voice` (state machine, sentence splitter, Deepgram + ElevenLabs adapters, webspeech dev adapter); `voice-token` function; `OrbPresence` ported from prototype; call-screen layout; barge-in; mixed voice/text turns; latency instrumentation (§6.1); spoken AI disclosure at consult start.
+**Deliverables:** `packages/voice` (state machine, sentence splitter, Deepgram + Chirp 3 HD adapters, webspeech dev adapter); `voice-token` function; `OrbPresence` ported from prototype; call-screen layout; barge-in; mixed voice/text turns; latency instrumentation (§6.1); spoken AI disclosure at consult start.
 **Accept:** hands-free consult end-to-end on a mid-range Android; p50 end-of-speech → first audio < 1.5 s, p95 < 3 s on staging; mic-denied path falls back to full text consult; timestamps observable flowing to `MiraPresence` props.
 **Do not build yet:** Doctor app voice, avatar work of any kind.
 
@@ -592,8 +592,8 @@ Phases map onto the PRD's release ladder (PRD §2): **Phases 0–4 = MVP-0** (va
 **Do not build yet:** specialist/pharmacy agents, outbound calls.
 
 ### Phase 6 — Multi-tenant delivery & MVP-1 completion (goal: onboarding a second hospital is config-only)
-**Deliverables:** subdomain tenant resolution wired (T-1) + wildcard DNS on Cloudflare Pages; `tenant-manifest` per-tenant PWA manifests + branded installs; operator onboarding runbook (< 1 h per hospital, executed once end-to-end for a fresh tenant); patient photo sharing (per-hospital bucket, Claude vision findings into the assessment, `consult_media`, in the trace); web push on approval; **Receptionist agent split** (own registry entry per §7.2).
-**Accept:** a brand-new tenant is live on its own subdomains with zero code changes; photo consult E2E passes; push received on approval; agent split verified as config-only (no orchestrator refactor in the diff).
+**Deliverables:** subdomain + path tenant/app resolution wired (T-1, DEC-1) + wildcard DNS and Cloudflare path-routing rules across both projects (DEC-12); `tenant-manifest` per-tenant, per-app PWA manifests + branded installs; operator onboarding runbook (< 1 h per hospital, executed once end-to-end for a fresh tenant); patient photo sharing (per-hospital bucket, Claude vision findings into the assessment, `consult_media`, in the trace); web push on approval; **Receptionist agent split** (own registry entry per §7.2).
+**Accept:** a brand-new tenant is live on its own subdomain (both `/patient` and `/doctor` paths) with zero code changes; photo consult E2E passes; push received on approval; agent split verified as config-only (no orchestrator refactor in the diff).
 
 ### 12.7 Phase dependency graph & parallel execution
 
@@ -611,9 +611,9 @@ These are hard because each depends on a runtime contract the prior phase produc
 **Sub-phase work packages (same phase, splittable across parallel workstreams, coordinate only at the named seam):**
 - **Phase 1** is one phase but four independent packages behind one seam (the migration sequence number): (a) schema + RLS policies, (b) the state-machine trigger + `consult_events` + `consult_trace` view, (c) Supabase Auth wiring + profile wizard, (d) seed script + RLS negative-test suite. Running these in parallel is safe *only* if migration numbering is coordinated (one owner rebases/renumbers before merge) — the risk isn't the work, it's two agents claiming the same migration number.
 - **Phase 4** similarly splits into independently ownable packages that only share the acceptance checklist, not code: observability (usage_events, dashboard, Sentry), security/accessibility pass, responsive pass (§10.1 rule 6 verification), PWA/offline polish, pilot runbook docs.
-- **Phase 6** splits into: subdomain/DNS + tenant-manifest delivery, photo sharing (`consult_media` + vision), web push, and the Receptionist agent split — these touch disjoint parts of the system (routing/hosting, storage, notifications, agent registry) and can run fully in parallel once Phase 5 is accepted.
+- **Phase 6** splits into: subdomain/path-routing + tenant-manifest delivery, photo sharing (`consult_media` + vision), web push, and the Receptionist agent split — these touch disjoint parts of the system (routing/hosting, storage, notifications, agent registry) and can run fully in parallel once Phase 5 is accepted.
 
-**Soft/opportunistic parallelism (may start early, at risk, before its formal gate):** groundwork for a later phase that doesn't touch runtime behavior can start during the prior phase without violating "do not build yet" — e.g. drafting the `VoiceProvider` adapter interface and its tests during Phase 2 (before Phase 3 formally starts) is fine because it's inert until wired into the orchestrator; actually calling Deepgram/ElevenLabs from a live consult before Phase 3's acceptance checks is not. The distinguishing rule: **inert scaffolding may start early; anything reachable from a live user flow may not.**
+**Soft/opportunistic parallelism (may start early, at risk, before its formal gate):** groundwork for a later phase that doesn't touch runtime behavior can start during the prior phase without violating "do not build yet" — e.g. drafting the `VoiceProvider` adapter interface and its tests during Phase 2 (before Phase 3 formally starts) is fine because it's inert until wired into the orchestrator; actually calling Deepgram/Chirp from a live consult before Phase 3's acceptance checks is not. The distinguishing rule: **inert scaffolding may start early; anything reachable from a live user flow may not.**
 
 **Post-MVP phase ladder (direction, not commitment) — each phase below needs an explicit entry gate before it starts, not just a place in the list:**
 
@@ -630,22 +630,9 @@ If an entry gate isn't met when a phase's turn comes up, the answer is to fix th
 
 ---
 
-## 13. Compliance, Privacy & Safety
+## 13. Best Coding Practices (binding for all agents)
 
-Baseline (DEC-10): **India-first**. HIPAA/ABDM are design considerations — the architecture must not preclude them; certification is out of MVP scope (PRD non-goal).
-
-1. **DPDP Act 2023 (India):** consent-first — explicit consent screen at signup covering health-data processing and AI involvement; purpose limitation (data used only for care delivery + doctor review); patient rights supported structurally (export = records view/PDF; erasure = operator runbook with medical-record retention exceptions documented); breach-notification runbook in `docs/ops.md`.
-2. **Telemedicine Practice Guidelines 2020 (India):** every prescription attributed to a named, registered medical practitioner (`prescriptions.doctor_id` → doctor profile carries name + registration number field); the RMP's identity displayed on the prescription view; AI is decision-support only — mandatory human sign-off is structural (AP-5); prescription-eligible drug lists are the reviewing doctor's responsibility, with hard-rule blocklists (e.g., schedule X) in the safety layer. **Identity & eligibility (PRD §3A.5):** Google sign-in authenticates the account, not the person — the health profile is self-attested and the prescription record states this; **adults 18+ only** in MVP, enforced via DOB at onboarding (no minor/guardian flow exists until designed).
-3. **AI transparency:** spoken disclosure at consult start + persistent `AiDisclosureBadge` (P-3b); "not yet approved" labeling on drafts; rejected consults tell the patient a human decided they need in-person care.
-4. **Data protection engineering:** TLS everywhere; RLS default-deny; no PHI in logs/analytics/error reports (§11.3, Sentry scrubbing); AI/voice providers receive the minimum context needed and are configured for zero data retention where the provider supports it (Anthropic ZDR; verify per voice provider); raw audio never persisted (DEC-3); storage buckets per hospital with RLS-backed policies; backups via Supabase PITR once on a paid tier.
-5. **Auditability:** `reviews` (action + diff), `review_messages`, `ai_drafts` (raw model output), `mira_feedback` — every clinical artifact traceable to who/what/when. Approved prescriptions immutable; corrections supersede (D-5).
-6. **HIPAA/ABDM readiness notes:** single-region data residency (choose Supabase Mumbai region at project creation — cheap now, painful later); BAA-capable vendors preferred when choices are otherwise equal; ABDM linkage (ABHA ids) would attach at `patient_details` — no schema obstacle.
-
----
-
-## 14. Best Coding Practices (binding for all agents)
-
-### 14.1 General
+### 13.1 General
 - TypeScript `strict`; **no `any`** (use `unknown` + narrowing); no `@ts-ignore` without a linked issue.
 - **Validate at every boundary** with the shared Zod schemas: client→EdgeFn input, LLM output, EdgeFn→client payloads, form input. Inside a validated boundary, trust the types.
 - Small modules, one responsibility; functions that fit on a screen; prefer pure functions in `core`.
@@ -653,16 +640,16 @@ Baseline (DEC-10): **India-first**. HIPAA/ABDM are design considerations — the
 - Naming: `camelCase` TS, `snake_case` SQL, `kebab-case` files, `PascalCase` components. Domain terms from the PRD glossary only (`consult`, not `session`/`case` mixed; `patient` is canonical, never `customer` in code).
 - Comments explain constraints and *why*, not what. No commented-out code in main.
 
-### 14.2 React
+### 13.2 React
 - Function components + hooks only. Server state in TanStack Query (keys defined centrally in `packages/api` — never inline strings); UI state local; no global state library.
 - Data fetching in `packages/api` hooks; components stay presentational (§10.1). Lazy-load routes. No `useEffect` for derivable state.
 - Layout comes from CSS (named breakpoints/container queries per §10.1 rule 6) — never from user-agent or screen-size sniffing in JS. Browser/native capabilities only via `packages/platform` (and `packages/voice` for mic); no raw `Notification`/`navigator.share`/storage-API calls in app or component code (DEC-16).
 
-### 14.3 SQL / Supabase
+### 13.3 SQL / Supabase
 - Schema changes only via migrations; every table RLS-enabled default-deny in the same migration that creates it; every privileged write is an RPC with an explicit grant, not a broad policy.
 - Never use the service role key outside Edge Functions. Never interpolate SQL.
 
-### 14.4 AI / prompts
+### 13.4 AI / prompts
 - Prompts are versioned code (`_shared/agents/prompts/`), reviewed like code, with golden-transcript tests: a fixture suite of consult scenarios (common cases, allergy conflict, red flags, prompt-injection attempts from the patient) runs against schema-validity and safety assertions on every prompt change. Model/params referenced from config only — never hardcoded at call sites, and always through `LlmProvider` (§1.3 seam 6).
 - Treat all user input as untrusted prompt content: patient text is delimited and never concatenated into system-level instructions.
 - **Prompt rollout is a deploy, not a git merge.** A merged prompt change is not live until it is pointed at from `hospitals.ai_config.prompt_version` (or the platform default). "Reviewed like code" governs whether a prompt change is *correct*; it says nothing about whether it is *safe to turn on everywhere at once* — for a system where the prompt is the clinical behavior, those are different questions and this document treats them as different steps:
@@ -671,14 +658,14 @@ Baseline (DEC-10): **India-first**. HIPAA/ABDM are design considerations — the
   3. **A prompt-version bump to a clinically material prompt (safety rules, dosing, red-flag list) requires the golden-transcript suite to pass *and* is logged as a `consult_events`-adjacent `prompt_change` audit row (agent id, old/new version, who approved) — this is deferred infrastructure, not needed before Phase 2, but the `ai_config.prompt_version` field and the version-never-deleted rule should exist from Phase 2 onward so this isn't retrofitted under incident pressure.
 - This same per-hospital `ai_config` override is the general canary/rollout primitive for any future-phase feature gated by tenant (e.g. enabling the Receptionist split or a new specialist agent for one hospital before defaulting it platform-wide) — see §12.7.
 
-### 14.5 Process
+### 13.5 Process
 - Trunk-based; small PRs (one concern); PR template asks: phase compliance? new dependency justified? contract change reflected in ARCHITECTURE.md? tests?
 - Tests: unit for `core`/`voice` logic (state machines, sentence splitter, contracts), component tests for `ui` states, one Playwright smoke per primary use case (UC-1/2/3), RLS negative suite, prompt golden suite. Target: the Phase-2 E2E stays green forever.
 - Architectural decisions that deviate from or extend this document → short ADR in `docs/adr/` + update the relevant section here in the same PR. This document must never drift from the code.
 
 ---
 
-## 15. Glossary (canonical terms — use these exact words in code and docs)
+## 14. Glossary (canonical terms — use these exact words in code and docs)
 
 | Term | Meaning |
 |---|---|

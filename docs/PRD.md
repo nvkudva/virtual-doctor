@@ -1,6 +1,6 @@
 # Virtual Doctor — Product Requirements Document
 
-**Version:** 0.3 (v0.2 revised after PM review — MVP re-scoped into MVP-0/MVP-1, riskiest assumptions, lifecycle edge cases, and risks added; v0.3 renames the "Doctor Desk" app to **Doctor App** throughout, matching "Patient App" — naming only, no scope change)
+**Version:** 0.4 (v0.2 revised after PM review — MVP re-scoped into MVP-0/MVP-1, riskiest assumptions, lifecycle edge cases, and risks added; all open questions in §9.2 resolved — domain scheme, voice provider, notifications, doctor assignment; v0.3 renamed the "Doctor Desk" app to **Doctor App** throughout, matching "Patient App" — naming only, no scope change; v0.4 merges both lines of work)
 **Date:** 2026-07-07
 **Status:** Awaiting review — the implementation Action Plan will be written after this PRD is approved.
 
@@ -210,7 +210,7 @@ The Doctor Agent is Mira's clinical brain and carries both of her modes (A-9):
 ## 4. Primary Use Cases
 
 ### UC-1: Patient completes a voice consult with Dr. Mira
-1. Patient opens `⟨hospital⟩.patient.⟨domain⟩`, signs in with Google (first time: completes a short health profile — DOB, sex, blood group, allergies, chronic conditions).
+1. Patient opens `⟨hospital⟩.vd.app/patient`, signs in with Google (first time: completes a short health profile — DOB, sex, blood group, allergies, chronic conditions).
 2. Taps "Talk to Dr. Mira". The experience is a **call**: the orb animates to listening/thinking/speaking states, and Dr. Mira greets the patient aloud by name — including a brief, warm disclosure that she is an AI doctor and that a human doctor reviews everything.
 3. The patient simply **speaks**. Speech is transcribed live (interim transcript visible on screen); when the patient finishes, Dr. Mira responds in a natural, empathetic voice — acknowledging feelings first, then asking one question at a time, exactly as a caring physician would on a phone call.
 4. Text input remains available throughout as a secondary channel — for spelling a medicine name, answering privately in a public place, or when the microphone is unavailable. Voice and text turns mix freely in one conversation.
@@ -220,13 +220,13 @@ The Doctor Agent is Mira's clinical brain and carries both of her modes (A-9):
 8. The consult enters status `pending_review`. The patient sees "A doctor is reviewing your consultation" with the AI's summary (clearly labeled *not yet approved*).
 
 ### UC-2: Dr. Mira presents the case; the doctor reviews and approves
-1. Doctor opens `⟨hospital⟩.doctor.⟨domain⟩`, signs in with email/password.
+1. Doctor opens `⟨hospital⟩.vd.app/doctor`, signs in with email/password.
 2. Sees the review queue for their hospital, ordered by urgency then age. Each card: patient name/age, chief complaint, AI confidence, safety flags.
 3. Opens a consult. Dr. Mira **presents the case aloud**, concisely, in clinical hand-off style: "Alex Kumar, 34, male — two weeks of productive cough, no fever, penicillin-allergic. My assessment is … I'm recommending … because …". The structured view (transcript, AI note, editable draft, patient profile + history side panel) is on screen throughout.
 4. The doctor converses with Mira naturally, as with an assisting subordinate doctor: "Has he had this before?", "What was his last prescription?", "Why not an X-ray?" — Mira answers instantly from the full patient record (profile, prior consults, prescriptions, and later lab results). Voice or text, the doctor's choice; the presentation can also be skipped entirely for silent visual review.
 5. The doctor can direct edits conversationally ("make that 5 days, add a gastric protectant") — Mira updates the draft on screen; the doctor always confirms the final version visually before signing.
 6. Doctor **approves** as-is, **edits** then approves, or **rejects** with a reason (e.g. "needs in-person examination") — rejection includes a message to the patient. The approval action itself is always an explicit UI action by the authenticated doctor, never voice-triggered.
-7. On approve, the consult becomes an immutable, doctor-attributed prescription record. The patient is notified (push notification if enabled, plus in-app).
+7. On approve, the consult becomes an immutable, doctor-attributed prescription record. The patient is notified via web push (MVP, §9.1) plus in-app status; on iOS Safari, where push is unreliable, in-app status is the guaranteed path.
 
 ### UC-3: Patient views records
 1. Patient opens "My records": chronological list of consults with status (in review / approved / needs in-person visit).
@@ -235,7 +235,7 @@ The Doctor Agent is Mira's clinical brain and carries both of her modes (A-9):
 
 ### UC-4: Platform operator onboards a hospital
 1. Operator inserts a hospital row (name, slug, logo, theme colors) and creates doctor accounts.
-2. DNS wildcard already covers `*.patient.⟨domain⟩` and `*.doctor.⟨domain⟩`; the app resolves the tenant from the subdomain at runtime.
+2. A DNS wildcard already covers `*.vd.app`; the platform resolves the tenant from the subdomain and the app from the first path segment (`/patient`, `/doctor`) at runtime.
 3. The hospital's Patient App and Doctor App are immediately live with the hospital's branding (name, logo, accent color via CSS variables).
 
 ---
@@ -294,7 +294,7 @@ Every consult must be reconstructable, end to end, in one place — a **Consult 
 
 *(Design — schema, RLS, theming tokens — is MVP-0; delivery — subdomain resolution, per-tenant manifests, onboarding — is MVP-1. MVP-0 seeds the single pilot hospital directly.)*
 
-- **T-1** *(MVP-1)* Tenant resolved from subdomain (`citycare.patient.⟨domain⟩` → hospital slug `citycare`).
+- **T-1** *(MVP-1)* Tenant resolved from subdomain, app from path (`citycare.vd.app/patient` → hospital slug `citycare`, Patient App; `citycare.vd.app/doctor` → Doctor App). The path scheme leaves room for future sub-apps (e.g. `/pharmacy`).
 - **T-2** Every domain table carries `hospital_id`; Postgres **Row Level Security** enforces that patients see only their own rows and doctors see only their hospital's rows. Isolation is enforced in the database, not in application code.
 - **T-3** Per-hospital theming via CSS variables (accent color, logo, display name) loaded from the hospital record; PWA manifest generated per tenant.
 - **T-4** Patients belong to one hospital per account context (a patient of two hospitals has two memberships; data never crosses).
@@ -421,11 +421,11 @@ The end-state experience is a **video call with Dr. Mira** — a virtual doctor 
 |---|---|---|---|
 | **R-1** | **Doctor liability concerns stall adoption** — doctors decline to sign AI-drafted prescriptions, or hospital leadership blocks the pilot. | Med / **Fatal** | Design-partner gate before Doctor App build (RA-1, §2A); immutable audit trail with draft-vs-approved diff (D-4/D-5); doctor can always reject to in-person; feedback channel (`mira_feedback`) gives doctors control over Mira's behavior. |
 | **R-2** | **Voice latency target (< 1.5 s) unachievable on real Indian 4G** — the conversation feels laggy, undermining the core interaction. | Med / High | Streaming end-to-end (A-6) with TTS starting on first sentence; text channel always available (P-3a) with graceful degradation on poor networks as an explicit requirement; measure p50/p95 from the pilot's real devices, not lab conditions. |
-| **R-3** | **Unit economics don't close** — voice (STT+TTS) + LLM cost per consult (~₹3–15 voice alone) exceeds what a small hospital will pay per consult. | Med / High | Per-consult cost tracked from day one (A-5 covers LLM+STT+TTS spend); per-hospital quotas; provider choice (Q2) made on cost *and* quality; cheaper TTS tier acceptable for MVP if empathy holds up in testing. |
-| **R-4** | **iOS Safari PWA limitations** — web push restrictions, mic permission quirks, and install friction degrade the patient experience on iPhones. | High / Med | In-app status is the baseline notification path (push is enhancement, Q3 §9.2); mic-denied flow fully supported via text (P-3a); publish a stated browser-support matrix with the pilot; Android-first pilot cohort acceptable for MVP-0. |
+| **R-3** | **Unit economics don't close** — voice (STT+TTS) + LLM cost per consult (~₹3–15 voice alone) exceeds what a small hospital will pay per consult. | Med / High | Per-consult cost tracked from day one (A-5 covers LLM+STT+TTS spend); per-hospital quotas; provider choice (§9.1, decided: Deepgram + Google Chirp 3 HD) made on cost *and* quality; cheaper TTS tier acceptable for MVP if empathy holds up in testing. |
+| **R-4** | **iOS Safari PWA limitations** — web push restrictions, mic permission quirks, and install friction degrade the patient experience on iPhones. | High / Med | Web push is MVP (§9.1) but not guaranteed on iOS Safari; in-app status is the fallback notification path there regardless; mic-denied flow fully supported via text (P-3a); publish a stated browser-support matrix with the pilot; Android-first pilot cohort acceptable for MVP-0. |
 | **R-5** | **AI quality failures** — missed red flags, hallucinated history in coordinator answers, or unsafe drafts erode doctor trust faster than it can be rebuilt. | Med / **Fatal** | Server-side hard safety rules (A-3); operator audits 100 % of MVP-0 consults (RA-3); coordinator answers must cite the stored record on screen (D-8); urgent-flag path independent of review latency (§7); Supervisor Agent in phase 2. |
 | **R-6** | **Queue goes unwatched** — no doctor reviews consults promptly, breaking the instant-care promise and stranding patients. | High / High | Staffing/incentive named in the pilot agreement (§3A.3); review SLA with patient notification, admin escalation, and 24 h expiry (§3A.5); urgent consults surface emergency guidance immediately regardless (§7). |
-| **R-7** | **Voice-provider lock-in** — the chosen STT/TTS vendor changes pricing or quality mid-pilot. | Low / Med | `packages/voice` defines a provider-agnostic interface (§6.1); server-side token minting isolates provider credentials; avatar-readiness contract (A-8) already forces a clean abstraction boundary. |
+| **R-7** | **Voice-provider volatility** — STT/TTS vendor pricing, free-tier terms, or model quality can change at any time (this is an industry-wide pattern, not specific to Deepgram/Google) — mid-pilot or long after launch. | Low / Med | `packages/voice` defines a provider-agnostic interface (§6.1) that both STT and TTS must go through — no call site talks to a vendor SDK directly; server-side token minting isolates provider credentials from client code; avatar-readiness contract (A-8) already forces a clean abstraction boundary. **This is a standing architectural constraint, not a one-time decision**: any future provider swap (STT or TTS, e.g. to Sarvam AI, Azure, ElevenLabs) should be a config/adapter change behind this interface, never a rewrite. |
 
 ## 9. Open Questions & Decisions
 
@@ -433,13 +433,14 @@ The end-state experience is a **video call with Dr. Mira** — a virtual doctor 
 - **Audio retention (was Q2a)** — **Decided: transcripts only for MVP.** Raw patient audio is streamed for transcription and not retained; lighter privacy burden, transcripts carry the audit value. Revisit if QA needs emerge.
 - **Languages (was Q3)** — **Decided: architect for i18n, ship English first.** All user-facing strings externalized and the voice pipeline provider-selected with Indic-language support in mind; Kannada/Telugu/Hindi are fast-follows, not MVP.
 - **Doctor App voice sequencing (was Q6)** — **Decided: MVP-1.** The Doctor App ships visual-first in MVP-0; coordinator-mode voice (D-7 – D-9) lands in MVP-1 reusing the proven patient voice stack. (Reflected in the §2 release ladder.)
+- **Domain scheme (was Q1, decided in review)** — **One subdomain per hospital, apps as path segments**: `⟨hospital⟩.vd.app/patient` and `⟨hospital⟩.vd.app/doctor`, extensible to future sub-apps (`/pharmacy`, …). One wildcard cert/DNS entry covers all tenants; the subdomain resolves the tenant, the first path segment selects the app. Per-tenant PWA manifests are served per subdomain. (Needed by MVP-1; MVP-0 pilots on a single dev domain.)
 - **Image sharing (was Q7)** — **Decided: MVP-1 for photos; video later.** Claude vision makes analysis straightforward, but upload UX + storage policies don't belong in the smallest loop-validating build. Related later-phase items remain flagged in §3A: Mira's live research lookup, outbound virtual call, doctor-joined video conferences.
+- **Voice provider (was §9.2 #1)** — **Decided: Deepgram (streaming STT) + Google Chirp 3 HD (TTS).** Deepgram's $200 signup credit (no card required) covers MVP-0 pilot volume outright (~430 hours of audio at Nova-3 rates). Google Chirp 3 HD's free tier (1M characters/month, recurring) covers roughly 250 five-minute consults/month at no cost, with strong voice quality. Both sit behind the provider-agnostic `packages/voice` interface (R-7), so either can be swapped later — e.g. to Sarvam AI, whose Indic-language-native TTS may be the better long-term fit once Kannada/Telugu/Hindi fast-follows (§9.1 languages) are underway. Per-consult cost at these rates is ~₹6–12 (see R-3, §8A).
+- **Notifications (was §9.2 #1)** — **Decided: web push is MVP**, not a later enhancement. Patients are notified the moment a consult is approved, without needing the app open. iOS Safari's push limitations (R-4, §8A) mean in-app status remains the guaranteed fallback there — push is additive, not the only path, and the Android-first pilot cohort (R-4) sidesteps the gap for most of MVP-0.
+- **Doctor assignment (was §9.2 #2)** — **Decided: single doctor for MVP-0**, so routing is moot at pilot scale — every consult goes to the one reviewing doctor. The schema and queue mechanism are already assignment-free/hospital-wide (§5.2, §6.4 `consults.hospital_id`), so adding more doctors to the shared queue later requires no redesign. **Later phase**: a specialty-aware "Doctor Queue" — routing consults to the doctor whose expertise matches the case — layers on top once there are enough doctors and specialties to route between; it's a natural pairing with the Specialist Agents (§3B.1, Phase 2+) and should reuse their specialty tagging rather than inventing a second taxonomy.
 
-### 9.2 Still open (please answer during review)
-1. **Domain names** — what real domains/subdomain scheme do you want (e.g. `citycare.vd.app` vs `patient-citycare.vd.app`)? Affects manifest + cookie scoping. (Needed by MVP-1, not MVP-0.)
-2. **Voice provider & budget** — natural, empathetic TTS is a paid service (ElevenLabs ≈ premium quality/cost; Azure Neural / Google Chirp cheaper and still very good; OpenAI TTS mid-range). Streaming STT similarly (Deepgram, AssemblyAI). What monthly voice budget should the MVP assume, and do you have a provider preference? This also sets the per-consult unit cost (~₹3–15 per 5-min consult depending on provider — see R-3 in §8A).
-3. **Notifications** — is web push (patient notified on approval) MVP, or is in-app status enough? (Note iOS Safari push constraints, R-4 in §8A.)
-4. **Doctor assignment** — MVP assumes a shared hospital-wide review queue (any doctor takes any consult). Do consults ever need routing to a specific doctor/specialty in MVP? (Interacts with the staffing/rota requirement in §3A.3.)
+### 9.2 Still open
+None — all open questions resolved during PM review (v0.2).
 
 ---
 
