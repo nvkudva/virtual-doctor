@@ -1,7 +1,7 @@
 # Virtual Doctor — Architecture Document (Source of Truth)
 
-**Version:** 1.9 (v1.1 aligned to PRD v0.2 — MVP-0/MVP-1 ladder, RA-1 gate, lifecycle edge cases, Consult Trace; v1.2 absorbs PRD UI-1 responsive layout + UI-2 native-shell readiness; v1.3 adds the `LlmProvider` seam, prompt rollout/rollback, Consult Trace scaling plan, and the phase dependency graph; v1.4 adds §11.4 PWA instant-load/app-shell/preload architecture, AP-8, DEC-17/DEC-18; v1.5 renames the "Doctor Desk" app to **Doctor App / Doctor PWA** — folder `apps/doctor/`; v1.6 merges in decisions made on `main` in parallel — DEC-1 domain scheme changes to one subdomain + path-scoped apps (`⟨slug⟩.vd.app/patient` \| `/doctor`, superseding the earlier two-subdomain scheme, with §5.1/§5.2/DEC-12 updated for the shared-origin session model), DEC-2 voice provider changes to Deepgram + Google Chirp 3 HD, and §13 Compliance is removed pending a later re-add; v1.7 reframes the product topology from **two separate PWAs** to **one single PWA with per-module entry points** (patient, doctor, future pharmacy), each selected by a URL path segment, sharing a configurable app shell (`AppShell`) + `packages/ui` while retaining full per-module UI customization — one Vite build, one deploy, with route/module-level lazy-loading so a module never downloads another module's chunk; adds DEC-19 (single-build module topology, CI import-boundary + per-module size budget), rewrites §1.1/§4/§5.1, and reconciles DEC-12/DEC-15/DEC-17 and §12 to one deployment — no product-scope change; v1.8 switches the default LLM from Anthropic `claude-fable-5` to Google **`gemini-2.5-flash`** on cost grounds (DEC-11), renaming the `LlmProvider` MVP adapter `anthropic.ts` → `gemini.ts` and updating §1.3 seam 6, the tech table, the diagram, `ai_config.model` default, and DEC-8/Phase-6 photo vision to Gemini — the `LlmProvider` seam is unchanged, only the shipped adapter; v1.9 switches the monorepo toolchain from npm workspaces to **Bun** (package/script manager) + **Turborepo** task caching per **ADR 001** — build-time only, Vite/Vitest/Deno unchanged — updating the §3 Monorepo + CI rows)
-**Date:** 2026-07-07
+**Version:** 1.9 (v1.1 aligned to PRD v0.2 — MVP-0/MVP-1 ladder, RA-1 gate, lifecycle edge cases, Consult Trace; v1.2 absorbs PRD UI-1 responsive layout + UI-2 native-shell readiness; v1.3 adds the `LlmProvider` seam, prompt rollout/rollback, Consult Trace scaling plan, and the phase dependency graph; v1.4 adds §11.4 PWA instant-load/app-shell/preload architecture, AP-8, DEC-17/DEC-18; v1.5 renames the "Doctor Desk" app to **Doctor App / Doctor PWA** — folder `apps/doctor/`; v1.6 merges in decisions made on `main` in parallel — DEC-1 domain scheme changes to one subdomain + path-scoped apps (`⟨slug⟩.vd.app/patient` \| `/doctor`, superseding the earlier two-subdomain scheme, with §5.1/§5.2/DEC-12 updated for the shared-origin session model), DEC-2 voice provider changes to Deepgram + Google Chirp 3 HD, and §13 Compliance is removed pending a later re-add; v1.7 reframes the product topology from **two separate PWAs** to **one single PWA with per-module entry points** (patient, doctor, future pharmacy), each selected by a URL path segment, sharing a configurable app shell (`AppShell`) + `packages/ui` while retaining full per-module UI customization — one Vite build, one deploy, with route/module-level lazy-loading so a module never downloads another module's chunk; adds DEC-19 (single-build module topology, CI import-boundary + per-module size budget), rewrites §1.1/§4/§5.1, and reconciles DEC-12/DEC-15/DEC-17 and §12 to one deployment — no product-scope change; v1.8 switches the default LLM from Anthropic `claude-fable-5` to Google **`gemini-2.5-flash`** on cost grounds (DEC-11), renaming the `LlmProvider` MVP adapter `anthropic.ts` → `gemini.ts` and updating §1.3 seam 6, the tech table, the diagram, `ai_config.model` default, and DEC-8/Phase-6 photo vision to Gemini — the `LlmProvider` seam is unchanged, only the shipped adapter; v1.9 switches the monorepo toolchain from npm workspaces to **Bun** (package/script manager) + **Turborepo** task caching per **ADR 001** — build-time only, Vite/Vitest/Deno unchanged — updating the §3 Monorepo + CI rows; v2.0 absorbs PRD §5.0.1 — the shared, configurable AI-voice-agent consultation interface: adds **`MiraConsole`** (§10.4, the one voice-agent surface hosting `MiraPresence` + transcript + a configurable per-audience suggestion/action slot, with minimize-to-orb ⇄ maximized presentations and an `AppShell`-level floating overlay), an inventory row in §10.2, and reconciles Phase 5's deliverable wording — no new seam, `MiraConsole` composes the existing `MiraPresence` (§10.3) + `packages/voice` (§6.4) seams)
+**Date:** 2026-07-08
 **Status:** Active — this document governs all implementation work.
 **Companion:** `docs/PRD.md` v0.5 (product requirements). Where this document and the PRD conflict on *how* to build, this document wins; on *what* to build, the PRD wins.
 
@@ -467,7 +467,8 @@ The trace is a **read model, not new write paths**: every step of a consult alre
 
 | Component | Purpose | Notes |
 |---|---|---|
-| `MiraPresence` | Mira's visual embodiment | Contract in §10.3; `OrbPresence` is the MVP implementation |
+| `MiraConsole` | **the shared AI-voice-agent consultation interface** — hosts `MiraPresence` + transcript + configurable suggestion/action panel; minimize-to-orb ⇄ maximized | Contract in §10.4; the one voice-agent surface, configured per audience (PRD §5.0.1, MC-1–MC-7). Consumed by patient + doctor modules today, pharmacy/lab/admin later |
+| `MiraPresence` | Mira's visual embodiment (orb → avatar) — rendered *inside* `MiraConsole` | Contract in §10.3; `OrbPresence` is the MVP implementation |
 | `TranscriptView` | scrolling conversation, interim-transcript rendering | both modules |
 | `ComposerBar` | text input + mic toggle + tap-to-finish | patient module; doctor module reuses for Ask-Mira |
 | `RecommendationCard` | structured draft: items, why, advice, urgency | patient (read-only) + doctor module (editable variant) |
@@ -494,6 +495,33 @@ interface MiraPresenceProps {
 ```
 
 `OrbPresence` (CSS/SVG, no canvas/WebGL) implements this in MVP. The future `AvatarPresence` implements the same props and is lazy-loaded; **no consumer may depend on implementation details of either**. Layout rule: consult screens are **call screens** — full-height presence area, transcript as overlay drawer (PRD §6.5).
+
+### 10.4 `<MiraConsole>` — the shared, configurable consultation shell (PRD §5.0.1)
+
+`MiraPresence` (§10.3) is *only* the embodiment. The whole reusable AI-voice-agent surface — presence + transcript + suggestion/action panel, in either the small floating orb or the full consultation view — is **`MiraConsole`**, and it is the interface PRD §5.0.1 (MC-1–MC-7) calls out as the product's single most-reused component. There is exactly **one** `MiraConsole`; every module (patient in patient mode, doctor in coordinator mode, and later pharmacy/lab/admin) mounts the same component and differs only by **configuration**, never by forking. It is the natural extension of the existing seams — it composes `MiraPresence` (§10.3) over the `packages/voice` turn-taking machine (§6.4) — so no new abstraction budget is spent; the reuse is why the presence and voice engines already live in shared packages.
+
+```ts
+type MiraAudience = 'patient' | 'doctor' | 'pharmacist' | 'lab' | 'admin'; // extensible
+
+interface MiraConsoleProps {
+  audience: MiraAudience;                 // MC-2 — who Mira is addressing
+  personaMode: 'patient' | 'coordinator'; // MC-2 — maps to the server-side agent binding (§7, PRD A-9)
+  session: MiraSession;                    // voice/turn-taking session (§6.4) — survives minimize/maximize (MC-4)
+  presentation: 'orb' | 'expanded';        // MC-4 — controlled or uncontrolled; animates between the two
+  channels?: { voice?: boolean; text?: boolean }; // MC-7 — co-equal, defaults per audience
+  suggestions?: ReactNode;                 // MC-3 — audience-specific suggestion/action content (slot)
+  disclosure?: ReactNode;                  // MC-2 — e.g. AiDisclosureBadge for the patient
+  onMinimize?(): void; onMaximize?(): void;
+}
+```
+
+- **MC-1/MC-2 — one component, configured per context.** Audience, persona/agent binding, enabled channels, branding (theme tokens per §10.1 rule 3 — nothing new), and disclosure copy are all props/config. `MiraConsole` stays presentational (§10.1 rule 2): it takes a `session` and callbacks, never fetches; context assembly and the persona↔agent mapping stay server-side (§7, PRD A-9).
+- **MC-3 — configurable suggestion/action surface via a slot.** `MiraConsole` owns the layout and the voice↔panel synchronization; each module passes audience-specific content into the `suggestions` slot (patient: draft summary + safety flags via `RecommendationCard`/`SafetyFlagList`; doctor: presentation + editable draft + citations + approve/edit via the editable `RecommendationCard` + `PatientHistoryPanel`; pharmacist later: interaction warnings). Clinical/legal actions (signing) remain explicit authenticated UI actions raised by the host module — never voice-executed (mirrors D-9 / §7 "approval is UI-only").
+- **MC-4 — minimize-to-orb ⇄ maximize, one session.** `presentation: 'orb' | 'expanded'` selects the small floating orb (presence + state at a glance) or the full call screen (§10.3 layout rule); tapping the orb maximizes, a control collapses it back. Both drive off the same `session`, so collapsing never tears down the conversation.
+- **MC-5 — persistent floating overlay is an `AppShell` concern.** In orb form `MiraConsole` floats above the current module screen so Mira is always one tap away without navigation. It therefore mounts at the `AppShell` level (not per-route) so it survives in-module client-side navigation (AP-8); position is per-breakpoint (§10.1 rule 6), dismissable, and last position/state may persist. The orb's placeholder is part of the precached shell (§11.4).
+- **MC-6/MC-7 — avatar-ready and channel-flexible for free.** Because `MiraConsole` renders `MiraPresence`, swapping orb → `AvatarPresence` (P11) touches nothing here. Text-only operation (mic denied/undesired) and screen-reader parity are the §10.1 rule 4 floor — every spoken turn already has a synchronized `TranscriptView` equivalent.
+
+**Do not build the whole thing at once.** MVP-0 ships `MiraConsole` for the *patient* module (expanded call screen + orb minimize/overlay); the doctor module reuses it in coordinator mode in MVP-1 (Phase 5, where the deliverable already says "Doctor app reuses `packages/voice` + `MiraPresence`" — now via `MiraConsole`); pharmacy/lab/admin audiences are Phase 6+ config, not new components.
 
 ---
 
@@ -592,7 +620,7 @@ Phases map onto the PRD's release ladder (PRD §2): **Phases 0–4 = MVP-0** (va
 ### — MVP-1 (widen once the loop is proven; entry criteria = RA-2/RA-3 gates holding in the pilot, PRD §2A) —
 
 ### Phase 5 — Doctor app coordinator voice (goal: Mira presents; the doctor converses)
-**Deliverables:** coordinator mode in the orchestrator (SBAR presentation, grounded Q&A with citations per D-8, conversational edits per D-9 — `action:'edit'` updates the on-screen draft only); Doctor app reuses `packages/voice` + `MiraPresence`; per-doctor mute/skip preference (persisted); `review_messages` audit (in the trace); `mira_feedback` capture UI.
+**Deliverables:** coordinator mode in the orchestrator (SBAR presentation, grounded Q&A with citations per D-8, conversational edits per D-9 — `action:'edit'` updates the on-screen draft only); Doctor app reuses `packages/voice` + `MiraConsole` (coordinator-mode config, §10.4); per-doctor mute/skip preference (persisted); `review_messages` audit (in the trace); `mira_feedback` capture UI.
 **Accept:** doctor opens a case, hears the presentation, asks two history questions answered with on-screen citations, dictates an edit, sees the draft change, signs via UI; voice cannot trigger approval (test exists); presentation skippable; the review conversation appears in the consult trace.
 **Do not build yet:** specialist/pharmacy agents, outbound calls.
 
