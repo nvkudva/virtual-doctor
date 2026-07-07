@@ -1,9 +1,9 @@
 # Virtual Doctor — Architecture Document (Source of Truth)
 
-**Version:** 1.0
-**Date:** 2026-07-06
+**Version:** 1.1 (aligned to PRD v0.2 — MVP-0/MVP-1 release ladder, RA-1 gate, lifecycle edge cases, Consult Trace)
+**Date:** 2026-07-07
 **Status:** Active — this document governs all implementation work.
-**Companion:** `docs/PRD.md` v0.1 (product requirements). Where this document and the PRD conflict on *how* to build, this document wins; on *what* to build, the PRD wins.
+**Companion:** `docs/PRD.md` v0.2 (product requirements). Where this document and the PRD conflict on *how* to build, this document wins; on *what* to build, the PRD wins.
 
 ---
 
@@ -83,7 +83,7 @@ Everything else follows YAGNI. Specifically **not** abstracted in MVP: no reposi
 
 ## 2. Recorded Decisions & Assumptions
 
-The PRD left open questions (§9). This document adopts the following as **working decisions** — each is reversible at the stated cost. Flag disagreement early; silence is consent.
+PRD v0.2 decided several formerly open questions itself (PRD §9.1) and left the rest open (PRD §9.2). This document adopts the following as **working decisions** — each is reversible at the stated cost. Flag disagreement early; silence is consent.
 
 | # | Decision | Rationale / reversal cost |
 |---|---|---|
@@ -91,14 +91,16 @@ The PRD left open questions (§9). This document adopts the following as **worki
 | DEC-2 | Voice providers: **Deepgram** (streaming STT, `nova`-family model) + **ElevenLabs Flash** (streaming TTS with word timestamps) as MVP defaults, **Azure Neural TTS** as the configured cost-fallback. Both behind the `VoiceProvider` interface. Browser Web Speech API is a dev/demo fallback only. | Best latency + empathy per unit cost as of mid-2026. Reversal: implement one adapter file. |
 | DEC-3 | **Transcripts only** — raw patient audio is never persisted in MVP. | Lighter privacy burden (PRD rec). Reversal: add a storage sink to the STT adapter + consent copy. |
 | DEC-4 | **English only at launch**, all strings through the i18n catalog. | PRD rec. Reversal: add locale files. |
-| DEC-5 | In-app status is the required notification channel; **web push ships in Phase 5** (not blocking earlier phases). | Push is additive; service worker already exists for PWA. |
+| DEC-5 | In-app status is the required notification channel; **web push ships in MVP-1** (not blocking earlier phases). | Push is additive; service worker already exists for PWA. |
 | DEC-6 | **Shared hospital-wide review queue**; no doctor routing/specialty assignment in MVP. | PRD rec. Reversal: add `assigned_doctor_id` column + filter. |
-| DEC-7 | Desk coordinator-mode **voice ships one phase after** patient voice (desk launches visual-first). | Reuses the proven patient voice stack (PRD rec). |
-| DEC-8 | **Patient photo sharing is in MVP** (Phase 5), analyzed via Claude vision; video deferred. | PRD rec Q7. |
+| DEC-7 | Desk coordinator-mode **voice ships in MVP-1** (desk launches visual-first in MVP-0). | Decided in PRD §9.1 — reuses the proven patient voice stack. |
+| DEC-8 | **Patient photo sharing ships in MVP-1**, analyzed via Claude vision; video deferred. | Decided in PRD §9.1 — not part of the smallest loop-validating build. |
 | DEC-9 | Package manager **npm** (workspaces); **no Turborepo** until cold build exceeds ~60 s. | Smallest tool surface. Reversal: add turbo.json, zero code change. |
 | DEC-10 | Target market is **India-first** (₹ economics in PRD): compliance baseline is DPDP Act 2023 + Telemedicine Practice Guidelines 2020, with ABDM and HIPAA as design considerations, not deliverables (§13). | Reversal: compliance section widens; architecture already accommodates it. |
 | DEC-11 | Model: `claude-fable-5` primary, per-hospital override via `hospitals.ai_config.model`. Vision (photo analysis) uses the same model. | PRD A-2. |
-| DEC-12 | Hosting: static apps on **Cloudflare Pages** (two projects, wildcard subdomains, generous free tier, best cold-start CDN for India); Supabase for everything else. | Reversal: any static host works — the apps are pure static builds. |
+| DEC-12 | Hosting: static apps on **Cloudflare Pages** (two projects; default project domains in MVP-0, wildcard tenant subdomains wired in MVP-1); Supabase for everything else. | Reversal: any static host works — the apps are pure static builds. |
+| DEC-13 | Lifecycle timers (review SLA, abandonment, expiry — PRD §3A.5) run as **`pg_cron` jobs inside Postgres** calling SQL functions that write `consult_events` and flip statuses. No external scheduler, no queue infrastructure. | Timers are per-hospital config read from `hospitals.ai_config`. Reversal: swap cron jobs for a worker — the SQL functions stay. |
+| DEC-14 | **One open consult per patient per hospital** (PRD §3A.5) enforced by a **partial unique index** on `consults (patient_id, hospital_id) WHERE status IN ('active','pending_review')` — database-level, like all other invariants. | App code treats the conflict as "resume existing consult". Reversal: drop the index. |
 
 ---
 
@@ -177,6 +179,8 @@ virtual-doctor/
 
 ### 5.1 Tenant resolution
 
+*(Design is MVP-0 — every table, policy, and theme token is tenant-scoped from the first migration. Delivery — subdomain resolution, per-tenant manifests, onboarding — ships in Phase 6/MVP-1; MVP-0 seeds the single pilot hospital directly and the apps load its config by env-configured slug.)*
+
 1. Browser loads `citycare.patient.⟨D⟩`. App parses the subdomain → slug `citycare` (in `packages/core/tenant.ts`; the *only* place subdomain parsing exists).
 2. App fetches the hospital row (public read of `id, slug, name, logo_url, theme` only — RLS exposes nothing else anonymously) and applies theme tokens by setting CSS variables on `:root`.
 3. `tenant-manifest` Edge Function serves `manifest.webmanifest` per tenant (name, icons, theme color) so each hospital's install is branded.
@@ -205,7 +209,9 @@ client ──(POST /ai-consult, {consultId, turn})──▶ Edge Function
      structured JSON tail (note/confidence/flags/done/recommendation) parsed at end
   6. post-validation: recommendation validated against MiraPatientTurn schema AND
      re-checked against the allergy hard-rules (independent code path from the prompt)
-  7. persist: consult_messages + ai_drafts written; status transition if done
+  7. persist: consult_messages + ai_drafts written; status transition if done;
+     non-message system actions (queued, notification sent, …) land in consult_events —
+     nothing bypasses the trace tables (§8.5): if it isn't in the trace, it didn't happen
 ```
 
 Voice differs only at the edges: STT produces the `turn` text; the streamed reply text is forked to the TTS adapter sentence-by-sentence (§6.2). The consult logic is identical — this is what makes P-3a (mixed voice/text turns) free.
@@ -213,7 +219,7 @@ Voice differs only at the edges: STT produces the `turn` text; the streamed repl
 ### 5.4 Doctor review flow
 
 - Queue: TanStack Query + Supabase Realtime subscription on `consults` where `status = 'pending_review'` for the doctor's hospital, ordered urgency → age.
-- Review screen loads: transcript, latest `ai_drafts` row, patient profile/history panel.
+- Review screen loads: transcript, latest `ai_drafts` row, patient profile/history panel. Opening a consult records a `doctor_opened` event in `consult_events` (feeds the Consult Trace and the review-time metric).
 - Conversational edits (D-9): doctor turn → `ai-consult` in coordinator mode → response `{reply, action: 'edit', recommendation}` → the **draft on screen updates**; nothing persists as a prescription.
 - **Approval is an explicit UI action** (button + confirm) that calls a single Postgres RPC `approve_consult(consult_id, final_items, advice)` running as a transaction: inserts `prescriptions`, inserts `reviews` (with diff vs AI draft), flips consult status. This RPC is the *only* write path to `prescriptions` (AP-5). Voice can never trigger it.
 - Reject/escalate follow the same RPC pattern (`reject_consult`, `escalate_consult`).
@@ -222,6 +228,18 @@ Voice differs only at the edges: STT produces the `turn` text; the streamed repl
 
 - Realtime: doctor queue only (MVP). Patient consult status updates via TanStack Query polling (30 s) + push later — do not add a second Realtime channel until profiling says polling hurts.
 - Offline (PWA): app shell + records list/detail cached (stale-while-revalidate). Consults require connectivity; the consult screen shows a clear offline state. No offline queueing of consult turns in MVP.
+
+### 5.6 Consult lifecycle timers (PRD §3A.5 — MVP-0 requirements)
+
+All timers are `pg_cron` jobs (DEC-13) running SQL functions; every firing writes a `consult_events` row and any status change goes through the same state-machine trigger as everything else (§8.4). Thresholds are per-hospital config (`hospitals.ai_config.sla`), with platform defaults:
+
+| Timer | Default | Action |
+|---|---|---|
+| Review SLA warn | 2 h in `pending_review` during clinic hours | Notify patient of the delay; escalate to the hospital's admin contact (`sla_escalated` event). |
+| Review expiry | 24 h in `pending_review` | Consult → `expired`; apology message + clear in-person guidance to the patient. |
+| Abandonment | 30 min in `active` with no patient turn | Consult → `abandoned`; patient can start fresh anytime; Mira may reference the abandoned attempt naturally in the next consult's context assembly. |
+
+The urgent flag is independent of all timers: red-flag guidance is delivered to the patient immediately (P-7), regardless of review latency. Additional lifecycle rules enforced at the database: **one open consult per patient per hospital** (partial unique index, DEC-14 — the app resumes the existing consult instead); a rejected consult always carries the doctor's reason and a concrete next step (rejection is never a dead end); **adults 18+ only** — enforced via DOB at profile completion, stated at onboarding.
 
 ---
 
@@ -296,8 +314,8 @@ The registry lives in `supabase/functions/_shared/agents/`. Per-hospital overrid
 
 ### 7.2 Orchestrator (`ai-consult` Edge Function)
 
-- Routes each turn by consult status + app: `active` + patient app → patient-mode pipeline (receptionist stage until chief complaint captured, then doctor agent); `pending_review` + desk → coordinator mode.
-- **MVP simplification (mandated):** receptionist + doctor are **one LLM call with two prompt stages**, exposed as two logical agents in the registry. Do not build multi-call agent chains, agent-to-agent messaging, or a planning loop in MVP. The registry seam is what preserves the option (AP-7).
+- Routes each turn by consult status + app: `active` + patient app → patient-mode pipeline; `pending_review` + desk → coordinator mode.
+- **MVP simplification (mandated, per PRD §3B.2):** in **MVP-0 the Doctor Agent runs alone** — one LLM call whose intake stage covers the Receptionist's greeting/resume duties. The **Receptionist splits out as its own registry entry in MVP-1** (own prompt stage, same or separate call — config, not refactor). Do not build multi-call agent chains, agent-to-agent messaging, or a planning loop in MVP. The registry seam is what preserves the option (AP-7).
 - Merges are trivial in MVP (single agent output). The merge point exists as a named function (`composeMiraTurn`) so specialist opinions have a place to land in phase 2.
 - Enforces quotas before calling any provider: max turns/consult, max tokens/call, per-hospital daily consult quota (covers LLM + STT + TTS spend). Quota-exceeded returns a graceful spoken/text wrap-up, never a raw error.
 
@@ -358,12 +376,14 @@ Specialists, Lab, Radiology, Pharmacy, Communication Manager, Supervisor slot in
 
 ### 8.2 Schema (authoritative — matches PRD §6.4 with constraints made explicit)
 
-Tables: `hospitals`, `profiles`, `memberships`, `patient_details`, `consults`, `consult_messages`, `review_messages`, `ai_drafts`, `prescriptions`, `reviews`, `mira_feedback`, `consult_media` — columns exactly as PRD §6.4, plus:
+Tables: `hospitals`, `profiles`, `memberships`, `patient_details`, `consults`, `consult_messages`, `review_messages`, `ai_drafts`, `prescriptions`, `reviews`, `mira_feedback`, `consult_media`, `consult_events` — columns exactly as PRD §6.4, plus:
 
 - All PKs `uuid default gen_random_uuid()`; all timestamps `timestamptz default now()`.
-- `consults.status` is a Postgres enum; transitions enforced by trigger against the state machine in §8.4.
+- `consults.status` is a Postgres enum — including `abandoned` and `expired` (PRD §3A.5); transitions enforced by trigger against the state machine in §8.4.
 - `prescriptions.supersedes_id` self-FK; a superseding insert flips the superseded row's consult status via the same RPC.
-- Indexes (MVP set): `consults(hospital_id, status, created_at desc)` (queue), `consults(patient_id, created_at desc)` (records), `consult_messages(consult_id, created_at)`, `prescriptions(patient_id)`, `memberships(profile_id, hospital_id)`.
+- `consult_events` is **append-only** (no UPDATE/DELETE grants to anyone): `event_type` (`status_change`|`queued`|`doctor_opened`|`notification_sent`|`sla_escalated`|`expired`|`system`), `actor` (`patient`|`ai`|`doctor`|`system`), `actor_id`, `payload jsonb`. The status-transition trigger writes the `status_change` events itself, so no code path can change status without leaving a trace row.
+- **Partial unique index** `consults (patient_id, hospital_id) WHERE status IN ('active','pending_review')` — one open consult per patient per hospital (DEC-14).
+- Indexes (MVP set): `consults(hospital_id, status, created_at desc)` (queue), `consults(patient_id, created_at desc)` (records), `consult_messages(consult_id, created_at)`, `consult_events(consult_id, created_at)`, `prescriptions(patient_id)`, `memberships(profile_id, hospital_id)`.
 - Migration discipline: numbered SQL files in `supabase/migrations`, forward-only, each migration ships its RLS changes and a rollback note. Generated TS types (`supabase gen types`) are committed to `packages/api` and CI fails if stale.
 
 ### 8.3 RLS policy matrix (the tenancy contract)
@@ -379,6 +399,8 @@ Tables: `hospitals`, `profiles`, `memberships`, `patient_details`, `consults`, `
 | prescriptions | own r | own hospital r | insert **via approval RPCs only** |
 | reviews, mira_feedback | — | own hospital insert/read | all |
 | consult_media | own consults r/w (upload) | read (their hospital) | all |
+| consult_events | — | read (their hospital) | **only writer** (service role + SQL functions/triggers); append-only for all |
+| consult_trace (view) | — | read (their hospital) | all — operator reads cross-hospital via console (O-3) |
 
 Every table has RLS **enabled with default-deny**; policies are additive grants. RLS tests (§12 Phase 1) assert both the grants and the denials (patient A cannot read patient B; doctor of hospital X cannot read hospital Y — these four negative tests run in CI forever).
 
@@ -386,17 +408,28 @@ Every table has RLS **enabled with default-deny**; policies are additive grants.
 
 ```
 active → pending_review → approved | rejected | escalated
+active → abandoned                (30 min no patient turn — timer, §5.6)
+pending_review → expired          (24 h unreviewed — timer, §5.6)
 approved → communicated → closed
 approved → superseded (via superseding prescription)
 ```
 
-Any transition not in this list is rejected at the database. UI state derives from this enum only — no shadow status fields.
+Any transition not in this list is rejected at the database. UI state derives from this enum only — no shadow status fields. Every transition is also recorded as a `status_change` row in `consult_events` by the same trigger.
+
+### 8.5 Consult Trace read model (PRD §5.4, O-1–O-4 — MVP-0)
+
+The trace is a **read model, not new write paths**: every step of a consult already lands in an append-only table with timestamps and actor attribution (`consult_messages`, `ai_drafts` — with logical-agent attribution, `review_messages`, `reviews`, `consult_media`, `prescriptions`), and `consult_events` covers the transitions and system actions that aren't messages. A single database view unions them:
+
+- **`consult_trace` view**: time-ordered `UNION ALL` over the tables above, normalized to `(consult_id, hospital_id, at, actor, actor_id, kind, summary, payload)`. This view is the *only* thing the trace timeline UI and search read (O-1); free-text search over transcript/draft content (O-2) is a Postgres full-text index over the message/draft sources — no search infrastructure in MVP.
+- **Access** follows the RLS matrix (O-3): doctors/admins see their hospital's traces; the operator reads cross-hospital via console/SQL in MVP-0 (the operator dashboard queries in `docs/ops.md` are trace queries); patients see UC-3 record views, never the internal trace.
+- **Export** (O-4): one RPC `export_consult_trace(consult_id)` returns the full trace as JSON; the printable view renders the same payload client-side.
+- **Invariant**: nothing in any flow may write consult state outside these tables. If it isn't in the trace, it didn't happen — this is checked in review, and the Phase-2 E2E asserts the trace is complete for a full consult lifecycle.
 
 ---
 
 ## 9. Multi-Tenancy Summary
 
-- Tenant = `hospitals` row; resolved from subdomain (§5.1); enforced by RLS (§8.3); themed by CSS variables + per-tenant manifest (§5.1).
+- Tenant = `hospitals` row; resolved from subdomain (§5.1 — delivery in MVP-1; MVP-0 uses an env-configured slug for the pilot); enforced by RLS (§8.3); themed by CSS variables + per-tenant manifest (§5.1).
 - A patient with accounts at two hospitals has two `memberships`; data never crosses (T-4).
 - Per-hospital config surface (all in `hospitals` row): `theme` (colors/logo/name), `ai_config` (model override, voice persona id, quotas). Nothing else is per-hospital in MVP.
 
@@ -463,44 +496,56 @@ Per-hospital daily consult quota + per-consult turn cap + per-call token cap, en
 - Structured logs in Edge Functions (JSON): request id, consult id, hospital id, agent id, latency segments (§6.1), token counts. **Never any PHI, transcript text, or patient identifiers beyond opaque ids.**
 - Client: Sentry (or equivalent) with PII scrubbing on, plus Web Vitals reporting.
 - One operator dashboard query set (SQL in `docs/ops.md`): consults/day per hospital, p50/p95 voice latency, approval-with-no-edit rate, quota consumption — the PRD §8 metrics must be *measurable* from launch, not retrofitted.
+- **Consult Trace is the primary clinical observability surface** (§8.5): the operator audits 100 % of MVP-0 consults from it (RA-3), and RA-3's gate metrics (approval-with-minor-edits rate, median review time) come from `reviews` + `consult_events` — never from ad-hoc logging.
 
 ---
 
 ## 12. Implementation Phases
 
-Rules: phases ship in order; a phase is done only when its acceptance checks pass in CI/staging; "do not build yet" lists are binding. Each phase ends with a tagged, deployable state.
+Phases map onto the PRD's release ladder (PRD §2): **Phases 0–4 = MVP-0** (validate the core loop with one pilot hospital), **Phases 5–6 = MVP-1** (widen once the loop is proven). Rules: phases ship in order; a phase is done only when its acceptance checks pass in CI/staging; "do not build yet" lists are binding. Each phase ends with a tagged, deployable state.
+
+> **Gate G-1 (RA-1, blocking):** the Doctor Desk portion of Phase 2 does not start until at least **2 named doctors at the pilot hospital have reviewed mock AI drafts and agreed in writing to sign real ones** (PRD §2A). This is a product gate, not an engineering task — engineering proceeds through Phase 0–1 and the patient side of Phase 2 while it's pursued. If RA-1 fails, stop and re-plan; do not build the desk on hope.
+
+### — MVP-0 (single pilot hospital, tenant seeded directly; multi-tenant *schema* from day one) —
 
 ### Phase 0 — Foundation (goal: an empty but real product skeleton)
-**Deliverables:** monorepo per §4; `packages/config` toolchain; `packages/theme` tokens (light/dark); `packages/core` with tenant parsing, consult state machine, contracts (§7.3) and i18n scaffold; CI (typecheck/lint/test/build/size-limit); both apps deploy to Cloudflare Pages with wildcard subdomains showing a themed shell.
-**Accept:** `npm i && npm run build` green; both apps live on two tenant subdomains with distinct branding from seed data; CI enforces budgets.
-**Do not build yet:** any Supabase table beyond `hospitals`, any AI call, any voice code.
+**Deliverables:** monorepo per §4; `packages/config` toolchain; `packages/theme` tokens (light/dark); `packages/core` with consult state machine, contracts (§7.3) and i18n scaffold (tenant *parsing* code exists in `core` but subdomain wiring waits for Phase 6); CI (typecheck/lint/test/build/size-limit); both apps deploy to Cloudflare Pages (default project domains) showing a themed shell branded from seeded hospital config.
+**Accept:** `npm i && npm run build` green; both apps live and branded from seed data; CI enforces budgets.
+**Do not build yet:** any Supabase table beyond `hospitals`, any AI call, any voice code, subdomain plumbing.
 
 ### Phase 1 — Data platform & auth (goal: tenancy is real and provably isolated)
-**Deliverables:** full schema + RLS (§8) as migrations; seed script (2 hospitals, 2 doctors each, sample patients); Supabase Auth wired (Google for patient app, email/pw for desk); profile wizard; generated DB types in `packages/api` + base query hooks; RLS negative-test suite in CI.
-**Accept:** the four cross-tenant denial tests pass; a patient can sign in, complete profile, see an empty records list; a doctor sees an empty queue for *their* hospital only.
+**Deliverables:** full schema + RLS (§8, incl. `consult_events`, the `consult_trace` view, the state-machine trigger, and the one-open-consult index) as migrations; seed script (2 hospitals — pilot + a synthetic second tenant to keep isolation honest — 2 doctors each, sample patients); Supabase Auth wired (Google for patient app, email/pw for desk); profile wizard with 18+ DOB enforcement (§5.6); generated DB types in `packages/api` + base query hooks; RLS negative-test suite in CI.
+**Accept:** the four cross-tenant denial tests pass; a patient can sign in, complete profile, see an empty records list; a doctor sees an empty queue for *their* hospital only; an under-18 DOB is rejected at profile completion.
 **Do not build yet:** AI, voice, review actions.
 
 ### Phase 2 — Text consult, end to end (goal: the full loop works before voice exists)
-**Deliverables:** `ai-consult` Edge Function with orchestrator, agent registry (receptionist+doctor as one call/two stages), context assembly, safety layers 1–3, quotas; patient consult UI (text mode: `TranscriptView`, `ComposerBar`, `RecommendationCard`, `EmergencyInterstitial`, `AiDisclosureBadge`); consult lifecycle to `pending_review`; desk queue (Realtime) + review screen + approve/edit/reject RPCs + audit `reviews`; patient records list + `PrescriptionView`.
-**Accept:** scripted E2E: patient completes a text consult → doctor edits + approves → patient sees the signed prescription; allergy hard-rule blocks a conflicting draft in post-validation; red-flag input produces urgent flag + interstitial; all actions audited.
-**Do not build yet:** any STT/TTS, desk voice, images, push.
+**Deliverables:** `ai-consult` Edge Function with orchestrator, agent registry (**Doctor Agent alone**, §7.2), context assembly, safety layers 1–3, quotas; patient consult UI (text mode: `TranscriptView`, `ComposerBar`, `RecommendationCard`, `EmergencyInterstitial`, `AiDisclosureBadge`); consult lifecycle to `pending_review`; lifecycle timers via `pg_cron` (§5.6: SLA warn/escalate, 24 h expiry, 30 min abandonment) with rejection/expiry patient messaging; **[gated by G-1]** desk queue (Realtime) + review screen + approve/edit/reject RPCs + audit `reviews`; patient records list + `PrescriptionView`; operator trace access (the `consult_trace` view + `docs/ops.md` queries + `export_consult_trace` RPC).
+**Accept:** scripted E2E: patient completes a text consult → doctor edits + approves → patient sees the signed prescription — **and the consult's trace timeline contains every step of that journey** (turns, draft, queued, doctor_opened, decision + diff, notification, closure); allergy hard-rule blocks a conflicting draft in post-validation; red-flag input produces urgent flag + interstitial; starting a second consult resumes the open one; timers fire in a clock-mocked test; all actions audited.
+**Do not build yet:** any STT/TTS, desk voice, images, push, Receptionist agent.
 
 ### Phase 3 — Patient voice (goal: the product's core experience at target latency)
 **Deliverables:** `packages/voice` (state machine, sentence splitter, Deepgram + ElevenLabs adapters, webspeech dev adapter); `voice-token` function; `OrbPresence` ported from prototype; call-screen layout; barge-in; mixed voice/text turns; latency instrumentation (§6.1); spoken AI disclosure at consult start.
 **Accept:** hands-free consult end-to-end on a mid-range Android; p50 end-of-speech → first audio < 1.5 s, p95 < 3 s on staging; mic-denied path falls back to full text consult; timestamps observable flowing to `MiraPresence` props.
 **Do not build yet:** desk voice, avatar work of any kind.
 
-### Phase 4 — Desk coordinator voice (goal: Mira presents; the doctor converses)
-**Deliverables:** coordinator mode in the orchestrator (SBAR presentation, grounded Q&A with citations per D-8, conversational edits per D-9 — `action:'edit'` updates the on-screen draft only); desk reuses `packages/voice` + `MiraPresence`; per-doctor mute/skip preference (persisted); `review_messages` audit; `mira_feedback` capture UI.
-**Accept:** doctor opens a case, hears the presentation, asks two history questions answered with on-screen citations, dictates an edit, sees the draft change, signs via UI; voice cannot trigger approval (test exists); presentation skippable.
+### Phase 4 — MVP-0 hardening & pilot launch (goal: live with the design-partner hospital)
+**Deliverables:** quotas + `usage_events` + operator dashboard queries (PRD §8 and RA-2/RA-3 gate metrics measurable); Sentry + Web Vitals; security pass (headers/CSP, dependency audit, RLS re-review); accessibility pass; PWA install polish + offline records; load sanity test (50 concurrent consults); pilot runbook (rota/SLA config for the hospital, incident + breach-notification runbooks).
+**Accept:** Lighthouse ≥ 90 both apps; RA-2 (completion/voice rates) and RA-3 (approval-with-minor-edits, median review time) computable from the dashboard on day one of the pilot; operator can audit any consult end-to-end from its trace.
+**Do not build yet:** anything in MVP-1 below.
+
+### — MVP-1 (widen once the loop is proven; entry criteria = RA-2/RA-3 gates holding in the pilot, PRD §2A) —
+
+### Phase 5 — Desk coordinator voice (goal: Mira presents; the doctor converses)
+**Deliverables:** coordinator mode in the orchestrator (SBAR presentation, grounded Q&A with citations per D-8, conversational edits per D-9 — `action:'edit'` updates the on-screen draft only); desk reuses `packages/voice` + `MiraPresence`; per-doctor mute/skip preference (persisted); `review_messages` audit (in the trace); `mira_feedback` capture UI.
+**Accept:** doctor opens a case, hears the presentation, asks two history questions answered with on-screen citations, dictates an edit, sees the draft change, signs via UI; voice cannot trigger approval (test exists); presentation skippable; the review conversation appears in the consult trace.
 **Do not build yet:** specialist/pharmacy agents, outbound calls.
 
-### Phase 5 — MVP hardening & launch (goal: shippable to a first real hospital)
-**Deliverables:** photo sharing (upload to per-hospital bucket, Claude vision findings into the assessment, `consult_media`); web push on approval; per-tenant PWA manifests + install polish + offline records; quotas + `usage_events` + operator dashboard queries; Sentry + Web Vitals; security pass (headers/CSP, dependency audit, RLS re-review); accessibility pass; seed→onboarding runbook (< 1 h per new hospital); load sanity test (50 concurrent consults).
-**Accept:** Lighthouse ≥ 90 both apps; PRD §8 metrics all measurable from the dashboard; onboarding runbook executed once end-to-end for a fresh tenant.
+### Phase 6 — Multi-tenant delivery & MVP-1 completion (goal: onboarding a second hospital is config-only)
+**Deliverables:** subdomain tenant resolution wired (T-1) + wildcard DNS on Cloudflare Pages; `tenant-manifest` per-tenant PWA manifests + branded installs; operator onboarding runbook (< 1 h per hospital, executed once end-to-end for a fresh tenant); patient photo sharing (per-hospital bucket, Claude vision findings into the assessment, `consult_media`, in the trace); web push on approval; **Receptionist agent split** (own registry entry per §7.2).
+**Accept:** a brand-new tenant is live on its own subdomains with zero code changes; photo consult E2E passes; push received on approval; agent split verified as config-only (no orchestrator refactor in the diff).
 
 ### Post-MVP phase ladder (direction, not commitment)
-P6 Pharmacy + Lab agents, admin UI · P7 Specialist agents + Supervisor + feedback loop · P8 i18n locales (Kannada/Telugu/Hindi voice+text) · P9 Communication Manager, outbound Mira call, doctor-patient video · P10 `AvatarPresence`.
+P7 Pharmacy + Lab agents, admin UI · P8 Specialist agents + Supervisor + feedback loop · P9 i18n locales (Kannada/Telugu/Hindi voice+text) · P10 Communication Manager, outbound Mira call, doctor-patient video · P11 `AvatarPresence`.
 
 ---
 
@@ -509,7 +554,7 @@ P6 Pharmacy + Lab agents, admin UI · P7 Specialist agents + Supervisor + feedba
 Baseline (DEC-10): **India-first**. HIPAA/ABDM are design considerations — the architecture must not preclude them; certification is out of MVP scope (PRD non-goal).
 
 1. **DPDP Act 2023 (India):** consent-first — explicit consent screen at signup covering health-data processing and AI involvement; purpose limitation (data used only for care delivery + doctor review); patient rights supported structurally (export = records view/PDF; erasure = operator runbook with medical-record retention exceptions documented); breach-notification runbook in `docs/ops.md`.
-2. **Telemedicine Practice Guidelines 2020 (India):** every prescription attributed to a named, registered medical practitioner (`prescriptions.doctor_id` → doctor profile carries name + registration number field); the RMP's identity displayed on the prescription view; AI is decision-support only — mandatory human sign-off is structural (AP-5); prescription-eligible drug lists are the reviewing doctor's responsibility, with hard-rule blocklists (e.g., schedule X) in the safety layer.
+2. **Telemedicine Practice Guidelines 2020 (India):** every prescription attributed to a named, registered medical practitioner (`prescriptions.doctor_id` → doctor profile carries name + registration number field); the RMP's identity displayed on the prescription view; AI is decision-support only — mandatory human sign-off is structural (AP-5); prescription-eligible drug lists are the reviewing doctor's responsibility, with hard-rule blocklists (e.g., schedule X) in the safety layer. **Identity & eligibility (PRD §3A.5):** Google sign-in authenticates the account, not the person — the health profile is self-attested and the prescription record states this; **adults 18+ only** in MVP, enforced via DOB at onboarding (no minor/guardian flow exists until designed).
 3. **AI transparency:** spoken disclosure at consult start + persistent `AiDisclosureBadge` (P-3b); "not yet approved" labeling on drafts; rejected consults tell the patient a human decided they need in-person care.
 4. **Data protection engineering:** TLS everywhere; RLS default-deny; no PHI in logs/analytics/error reports (§11.3, Sentry scrubbing); AI/voice providers receive the minimum context needed and are configured for zero data retention where the provider supports it (Anthropic ZDR; verify per voice provider); raw audio never persisted (DEC-3); storage buckets per hospital with RLS-backed policies; backups via Supabase PITR once on a paid tier.
 5. **Auditability:** `reviews` (action + diff), `review_messages`, `ai_drafts` (raw model output), `mira_feedback` — every clinical artifact traceable to who/what/when. Approved prescriptions immutable; corrections supersede (D-5).
@@ -556,5 +601,7 @@ Baseline (DEC-10): **India-first**. HIPAA/ABDM are design considerations — the
 | **patient mode / coordinator mode** | Mira's two personas (PRD A-9) |
 | **presence** | Mira's visual embodiment (orb → avatar) behind `<MiraPresence>` |
 | **turn** | One user input + one Mira response |
+| **trace** | The Consult Trace: one chronological, exportable timeline of everything that happened in a consult (§8.5) |
 | **tenant / hospital** | Interchangeable; `hospital` in code |
 | **operator** | The platform owner (you) |
+| **MVP-0 / MVP-1** | The two MVP increments (PRD §2): core loop with one pilot hospital → widen (desk voice, tenancy delivery, photos, push) |
