@@ -50,6 +50,7 @@ The MVP is deliberately split into two increments so the riskiest assumptions (�
 3. Records *(MVP-0)*: patients see their visit history and approved prescriptions; doctors see the patient's history at review time.
 4. Multi-hospital *(design MVP-0, delivery MVP-1)*: onboarding a new hospital requires configuration only (a row in the database + a subdomain), zero code changes.
 5. Both apps installable as PWAs with fast first load (< 2.5 s LCP on a mid-range Android phone over 4G) *(MVP-0)*.
+6. **Responsive across mobile, tablet, and desktop** *(MVP-0)*: both apps are used on phones (patients, and doctors reviewing on the go), tablets, and desktop browsers (doctors at a workstation) — layouts must adapt to each, not just tolerate them. See UI-1 in §5.0.
 
 ### Non-Goals (explicitly out of MVP scope)
 - Appointment booking / scheduling
@@ -58,7 +59,7 @@ The MVP is deliberately split into two increments so the riskiest assumptions (�
 - **Video avatar for Dr. Mira** — deferred, but this is the **product's end-state, not a maybe**: the target experience is a video call with a virtual doctor whose animated face speaks, emotes, and lip-syncs in real time. The animated orb is explicitly a *placeholder* for the MVP. Every MVP decision in the conversation/voice pipeline must be made as if the avatar already exists (see A-8 and §6.5).
 - Payments and billing
 - Pharmacy / lab integrations (e-orders)
-- Native mobile apps (PWA only)
+- **Native mobile apps** — PWA only for MVP-0/MVP-1, but wrapping both PWAs into native containers for app-store distribution is the planned **later-phase end-state, not a maybe** (see UI-2, §5.0): the frontend architecture should not foreclose it.
 - Regulatory certification (HIPAA/ABDM compliance is a design consideration, not an MVP deliverable)
 
 ---
@@ -241,7 +242,9 @@ The Doctor Agent is Mira's clinical brain and carries both of her modes (A-9):
 
 ## 5. Functional Requirements
 
-### 5.1 Patient App
+### 5.0 Cross-cutting: Responsive UI & native-shell readiness (both apps)
+- **UI-1** *(MVP-0)* **Adaptive layout, not just "doesn't break."** Both the Patient App and Doctor Desk are used across phones, tablets, and desktop browsers — a patient may consult from a phone, a doctor may review from a tablet on rounds or a desktop at a workstation. Layouts must be designed mobile-first and reflow deliberately at tablet/desktop breakpoints (e.g. the Doctor Desk's queue + review screen goes from stacked single-column on phone to a two/three-pane layout on desktop), not simply scale a phone or desktop layout up/down. Touch targets, the voice orb, and the review screen's side panels are all specified per breakpoint, not assumed.
+- **UI-2** *(later phase, not MVP)* **Native app container.** The long-term plan is to wrap both PWAs in native containers (e.g. Capacitor/Trusted Web Activity) for app-store distribution, mirroring the video-avatar pattern (§2 Non-Goals): deferred, but the end-state, not a maybe. Every MVP-0/MVP-1 frontend decision should assume this eventually happens: avoid browser-only APIs with no native equivalent, keep platform-specific code (notifications, storage, mic access) behind an abstraction rather than scattered through components, and don't build UI that assumes a browser chrome (URL bar, browser-back) is always present. This costs little now and avoids a rewrite later.
 - **P-1** Google sign-in (Supabase Auth OAuth). Session persists across PWA launches.
 - **P-2** First-run health profile wizard; editable later. Fields: full name, DOB, sex, blood group, allergies (structured list), chronic conditions, current medications.
 - **P-3** **Voice-first consult UI** with the Dr. Mira orb (reuse prototype's visual identity and listening/thinking/speaking states). Hands-free turn-taking: automatic end-of-speech detection (with tap-to-finish fallback), live interim transcript, Dr. Mira's replies spoken aloud with synchronized text.
@@ -250,7 +253,7 @@ The Doctor Agent is Mira's clinical brain and carries both of her modes (A-9):
 - **P-3c** Voice quality: natural, warm, empathetic synthesis (cloud neural TTS, streamed); latency budget of < 1.5 s from patient end-of-speech to first audio of the reply.
 - **P-4** Consult status tracking: draft → pending_review → approved / rejected.
 - **P-5** Records list + prescription detail view + shareable/printable prescription.
-- **P-6** PWA: installable, app icon/name per hospital brand, offline shell (records cached read-only; consults require connectivity).
+- **P-6** PWA: installable, app icon/name per hospital brand, offline shell (records cached read-only; consults require connectivity); responsive per UI-1 (§5.0) across phone, tablet, desktop.
 - **P-7** Emergency interstitial when the AI flags urgent symptoms.
 
 ### 5.2 Doctor Desk
@@ -259,7 +262,7 @@ The Doctor Agent is Mira's clinical brain and carries both of her modes (A-9):
 - **D-3** Consult review screen: transcript, AI note, editable draft recommendation, patient profile + history side panel.
 - **D-4** Approve / edit-and-approve / reject with reason. Every action is audited (who, when, what changed vs the AI draft).
 - **D-5** Approved prescriptions are immutable; corrections create a superseding version.
-- **D-6** PWA: installable on desktop and tablet.
+- **D-6** PWA: installable on desktop, tablet, and phone; responsive per UI-1 (§5.0) — the review queue and consult screen adapt their layout across all three, since doctors review both at a workstation and on the go.
 - **D-7** *(MVP-1)* **Voice case presentation**: on opening a consult, Dr. Mira presents the case aloud in clinical hand-off style (SBAR-like: patient, situation, assessment, recommendation) via the same `<MiraPresence>` component the patient app uses. Skippable/muteable per doctor preference (persisted).
 - **D-8** *(MVP-1)* **Ask-Mira Q&A**: the doctor can ask Mira free-form questions (voice or text) about the patient — history, prior consults and prescriptions, allergies, and (phase 2) lab results — answered from the patient's full record within the hospital's RLS boundary. Every Mira answer cites the underlying record on screen so the doctor can verify at a glance.
 - **D-9** *(MVP-1)* **Conversational edits**: the doctor can dictate changes to the draft ("5 days instead of 3", "swap to azithromycin"); Mira applies them to the on-screen draft. Signing/approval is always an explicit authenticated UI action — never executable by voice.
