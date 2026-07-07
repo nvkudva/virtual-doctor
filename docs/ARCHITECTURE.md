@@ -96,7 +96,7 @@ The PRD left open questions (§9). This document adopts the following as **worki
 | DEC-7 | Desk coordinator-mode **voice ships one phase after** patient voice (desk launches visual-first). | Reuses the proven patient voice stack (PRD rec). |
 | DEC-8 | **Patient photo sharing is in MVP** (Phase 5), analyzed via Claude vision; video deferred. | PRD rec Q7. |
 | DEC-9 | Package manager **npm** (workspaces); **no Turborepo** until cold build exceeds ~60 s. | Smallest tool surface. Reversal: add turbo.json, zero code change. |
-| DEC-10 | Target market is **India-first** (₹ economics in PRD): compliance baseline is DPDP Act 2023 + Telemedicine Practice Guidelines 2020, with ABDM and HIPAA as design considerations, not deliverables (§13). | Reversal: compliance section widens; architecture already accommodates it. |
+| DEC-10 | Target market is **India-first** (₹ economics in PRD): compliance baseline is DPDP Act 2023 + Telemedicine Practice Guidelines 2020, with ABDM and HIPAA as design considerations, not deliverables (compliance section removed for now — to be re-added). | Reversal: compliance section widens; architecture already accommodates it. |
 | DEC-11 | Model: `claude-fable-5` primary, per-hospital override via `hospitals.ai_config.model`. Vision (photo analysis) uses the same model. | PRD A-2. |
 | DEC-12 | Hosting: static apps on **Cloudflare Pages** (two projects, wildcard subdomains, generous free tier, best cold-start CDN for India); Supabase for everything else. | Reversal: any static host works — the apps are pure static builds. |
 
@@ -504,20 +504,7 @@ P6 Pharmacy + Lab agents, admin UI · P7 Specialist agents + Supervisor + feedba
 
 ---
 
-## 13. Compliance, Privacy & Safety
-
-Baseline (DEC-10): **India-first**. HIPAA/ABDM are design considerations — the architecture must not preclude them; certification is out of MVP scope (PRD non-goal).
-
-1. **DPDP Act 2023 (India):** consent-first — explicit consent screen at signup covering health-data processing and AI involvement; purpose limitation (data used only for care delivery + doctor review); patient rights supported structurally (export = records view/PDF; erasure = operator runbook with medical-record retention exceptions documented); breach-notification runbook in `docs/ops.md`.
-2. **Telemedicine Practice Guidelines 2020 (India):** every prescription attributed to a named, registered medical practitioner (`prescriptions.doctor_id` → doctor profile carries name + registration number field); the RMP's identity displayed on the prescription view; AI is decision-support only — mandatory human sign-off is structural (AP-5); prescription-eligible drug lists are the reviewing doctor's responsibility, with hard-rule blocklists (e.g., schedule X) in the safety layer.
-3. **AI transparency:** spoken disclosure at consult start + persistent `AiDisclosureBadge` (P-3b); "not yet approved" labeling on drafts; rejected consults tell the patient a human decided they need in-person care.
-4. **Data protection engineering:** TLS everywhere; RLS default-deny; no PHI in logs/analytics/error reports (§11.3, Sentry scrubbing); AI/voice providers receive the minimum context needed and are configured for zero data retention where the provider supports it (Anthropic ZDR; verify per voice provider); raw audio never persisted (DEC-3); storage buckets per hospital with RLS-backed policies; backups via Supabase PITR once on a paid tier.
-5. **Auditability:** `reviews` (action + diff), `review_messages`, `ai_drafts` (raw model output), `mira_feedback` — every clinical artifact traceable to who/what/when. Approved prescriptions immutable; corrections supersede (D-5).
-6. **HIPAA/ABDM readiness notes:** single-region data residency (choose Supabase Mumbai region at project creation — cheap now, painful later); BAA-capable vendors preferred when choices are otherwise equal; ABDM linkage (ABHA ids) would attach at `patient_details` — no schema obstacle.
-
----
-
-## 14. Best Coding Practices (binding for all agents)
+## 13. Best Coding Practices (binding for all agents)
 
 ### 14.1 General
 - TypeScript `strict`; **no `any`** (use `unknown` + narrowing); no `@ts-ignore` without a linked issue.
@@ -546,7 +533,7 @@ Baseline (DEC-10): **India-first**. HIPAA/ABDM are design considerations — the
 
 ---
 
-## 15. Glossary (canonical terms — use these exact words in code and docs)
+## 14. Glossary (canonical terms — use these exact words in code and docs)
 
 | Term | Meaning |
 |---|---|
