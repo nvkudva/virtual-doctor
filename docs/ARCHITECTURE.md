@@ -1,6 +1,6 @@
 # Virtual Doctor — Architecture Document (Source of Truth)
 
-**Version:** 1.4 (v1.1 aligned to PRD v0.2 — MVP-0/MVP-1 ladder, RA-1 gate, lifecycle edge cases, Consult Trace; v1.2 absorbs PRD UI-1 responsive layout + UI-2 native-shell readiness; v1.3 adds the `LlmProvider` seam, prompt rollout/rollback, Consult Trace scaling plan, and the phase dependency graph; v1.4 adds §11.4 PWA instant-load/app-shell/preload architecture, AP-8, DEC-17/DEC-18 — findings from an external architecture review)
+**Version:** 1.5 (v1.1 aligned to PRD v0.2 — MVP-0/MVP-1 ladder, RA-1 gate, lifecycle edge cases, Consult Trace; v1.2 absorbs PRD UI-1 responsive layout + UI-2 native-shell readiness; v1.3 adds the `LlmProvider` seam, prompt rollout/rollback, Consult Trace scaling plan, and the phase dependency graph; v1.4 adds §11.4 PWA instant-load/app-shell/preload architecture, AP-8, DEC-17/DEC-18; v1.5 renames the "Doctor Desk" app to **Doctor App / Doctor PWA** throughout — folder `apps/doctor/`, subdomain `⟨slug⟩.doctor.⟨domain⟩` — no scope change, naming only)
 **Date:** 2026-07-07
 **Status:** Active — this document governs all implementation work.
 **Companion:** `docs/PRD.md` v0.2 (product requirements). Where this document and the PRD conflict on *how* to build, this document wins; on *what* to build, the PRD wins.
@@ -26,8 +26,8 @@ This document is the **single source of truth** for every agent (human or AI) bu
 ```
                         ┌────────────────────────────────────────────┐
                         │                 Browsers                   │
-                        │  Patient PWA          Doctor Desk PWA      │
-                        │  ⟨slug⟩.patient.⟨D⟩   ⟨slug⟩.desk.⟨D⟩     │
+                        │  Patient PWA          Doctor PWA           │
+                        │  ⟨slug⟩.patient.⟨D⟩   ⟨slug⟩.doctor.⟨D⟩   │
                         └──────┬───────────────────────┬─────────────┘
              HTTPS / WSS       │                       │
         ┌──────────────────────┼───────────────────────┼──────────────────┐
@@ -90,13 +90,13 @@ PRD v0.2 decided several formerly open questions itself (PRD §9.1) and left the
 
 | # | Decision | Rationale / reversal cost |
 |---|---|---|
-| DEC-1 | Subdomain scheme `⟨slug⟩.patient.⟨domain⟩` and `⟨slug⟩.desk.⟨domain⟩`; the apex domain is an env value (`VITE_VD_DOMAIN`), no code depends on a literal domain. | Matches PRD examples. Reversal: DNS + env change only. |
+| DEC-1 | Subdomain scheme `⟨slug⟩.patient.⟨domain⟩` and `⟨slug⟩.doctor.⟨domain⟩`; the apex domain is an env value (`VITE_VD_DOMAIN`), no code depends on a literal domain. | Matches PRD examples. Reversal: DNS + env change only. |
 | DEC-2 | Voice providers: **Deepgram** (streaming STT, `nova`-family model) + **ElevenLabs Flash** (streaming TTS with word timestamps) as MVP defaults, **Azure Neural TTS** as the configured cost-fallback. Both behind the `VoiceProvider` interface. Browser Web Speech API is a dev/demo fallback only. | Best latency + empathy per unit cost as of mid-2026. Reversal: implement one adapter file. |
 | DEC-3 | **Transcripts only** — raw patient audio is never persisted in MVP. | Lighter privacy burden (PRD rec). Reversal: add a storage sink to the STT adapter + consent copy. |
 | DEC-4 | **English only at launch**, all strings through the i18n catalog. | PRD rec. Reversal: add locale files. |
 | DEC-5 | In-app status is the required notification channel; **web push ships in MVP-1** (not blocking earlier phases). | Push is additive; service worker already exists for PWA. |
 | DEC-6 | **Shared hospital-wide review queue**; no doctor routing/specialty assignment in MVP. | PRD rec. Reversal: add `assigned_doctor_id` column + filter. |
-| DEC-7 | Desk coordinator-mode **voice ships in MVP-1** (desk launches visual-first in MVP-0). | Decided in PRD §9.1 — reuses the proven patient voice stack. |
+| DEC-7 | Doctor app coordinator-mode **voice ships in MVP-1** (Doctor app launches visual-first in MVP-0). | Decided in PRD §9.1 — reuses the proven patient voice stack. |
 | DEC-8 | **Patient photo sharing ships in MVP-1**, analyzed via Claude vision; video deferred. | Decided in PRD §9.1 — not part of the smallest loop-validating build. |
 | DEC-9 | Package manager **npm** (workspaces); **no Turborepo** until cold build exceeds ~60 s. | Smallest tool surface. Reversal: add turbo.json, zero code change. |
 | DEC-10 | Target market is **India-first** (₹ economics in PRD): compliance baseline is DPDP Act 2023 + Telemedicine Practice Guidelines 2020, with ABDM and HIPAA as design considerations, not deliverables (§13). | Reversal: compliance section widens; architecture already accommodates it. |
@@ -104,7 +104,7 @@ PRD v0.2 decided several formerly open questions itself (PRD §9.1) and left the
 | DEC-12 | Hosting: static apps on **Cloudflare Pages** (two projects; default project domains in MVP-0, wildcard tenant subdomains wired in MVP-1); Supabase for everything else. | Reversal: any static host works — the apps are pure static builds. |
 | DEC-13 | Lifecycle timers (review SLA, abandonment, expiry — PRD §3A.5) run as **`pg_cron` jobs inside Postgres** calling SQL functions that write `consult_events` and flip statuses. No external scheduler, no queue infrastructure. | Timers are per-hospital config read from `hospitals.ai_config`. Reversal: swap cron jobs for a worker — the SQL functions stay. |
 | DEC-14 | **One open consult per patient per hospital** (PRD §3A.5) enforced by a **partial unique index** on `consults (patient_id, hospital_id) WHERE status IN ('active','pending_review')` — database-level, like all other invariants. | App code treats the conflict as "resume existing consult". Reversal: drop the index. |
-| DEC-15 | **Responsive strategy (PRD UI-1, MVP-0):** mobile-first CSS with **two canonical breakpoints** — `tablet ≥ 768px`, `desktop ≥ 1120px` — defined once in `packages/theme` (exported TS consts + documented media-query snippets) and used by name everywhere. Page-level reflow is owned by layout components (`AppShell`, the desk review layout): stacked single-column on phone → two/three-pane on desktop. **No user-agent/device sniffing, no separate mobile builds** — one build per app, CSS decides layout. | Two breakpoints cover phone/tablet/desktop per UI-1 without a grid-system dependency. Reversal: add a breakpoint constant. |
+| DEC-15 | **Responsive strategy (PRD UI-1, MVP-0):** mobile-first CSS with **two canonical breakpoints** — `tablet ≥ 768px`, `desktop ≥ 1120px` — defined once in `packages/theme` (exported TS consts + documented media-query snippets) and used by name everywhere. Page-level reflow is owned by layout components (`AppShell`, the Doctor app's review layout): stacked single-column on phone → two/three-pane on desktop. **No user-agent/device sniffing, no separate mobile builds** — one build per app, CSS decides layout. | Two breakpoints cover phone/tablet/desktop per UI-1 without a grid-system dependency. Reversal: add a breakpoint constant. |
 | DEC-16 | **Native-shell readiness (PRD UI-2, later phase):** target wrapper is **Capacitor** (one codebase → Play Store + App Store; TWA remains an Android-only alternative). Binding MVP rules so this stays a packaging task, not a rewrite: (a) no browser-only APIs without a native equivalent in load-bearing paths; (b) platform capabilities only via `packages/platform` (seam 5) / `packages/voice` for mic; (c) UI never assumes browser chrome — every screen reachable via in-app navigation, no reliance on the URL bar or browser-back as the only way out; (d) push lands (MVP-1, DEC-5) behind the platform wrapper so web-push can later be joined by FCM/APNs. **No Capacitor dependency, config, or native project is added before its phase.** | Mirrors the avatar pattern: deferred, but the end-state. Reversal: none needed — the rules cost ~zero if the wrap never happens. |
 | DEC-17 | **Workbox via `injectManifest`, not `generateSW`** (both apps, `vite-plugin-pwa`), with an explicit per-route-class caching strategy matrix (§11.4) instead of one blanket strategy. `generateSW`'s defaults are tuned for generic sites, not a call-screen voice app with a hard latency budget (§6.1) that must never itself be cached. | `injectManifest` costs one hand-written service worker file per app vs. config-only, but is the only way to guarantee `NetworkOnly` on consult endpoints while still getting `CacheFirst` instant loads everywhere else. Reversal: switch to `generateSW` + custom runtime caching config — same cost either way, this just names the choice. |
 | DEC-18 | **TanStack Query cache persisted to IndexedDB** (`persistQueryClient` + an IndexedDB storage adapter) for stable, non-live data only: hospital theme/config, patient profile, records list/detail. Consult-in-progress and queue data are explicitly excluded — persisted stale data there is a correctness risk, not a UX win. | Makes repeat app launches paint real content immediately from disk instead of a blank shell + spinner while the network round-trips — the single biggest lever for "feels installed, not loading" on a warm return visit. Reversal: drop the persister plugin; TanStack Query still works in-memory-only. |
@@ -146,7 +146,7 @@ virtual-doctor/
 │   │   │   └── app.tsx, main.tsx
 │   │   ├── index.html
 │   │   └── vite.config.ts
-│   └── desk/                     # Doctor Desk PWA
+│   └── doctor/                   # Doctor PWA
 │       └── src/
 │           ├── routes/
 │           ├── features/         # queue/, review/, mira-panel/
@@ -202,7 +202,7 @@ virtual-doctor/
 - Patients: Supabase Google OAuth. First sign-in triggers the profile wizard (`patient_details` row).
 - Doctors: email/password, provisioned by the operator (no self-signup path exists in the UI or API).
 - JWT custom claims (set via Supabase auth hook): `role`, and memberships are resolved by RLS via the `memberships` table (not stuffed into the token, so revocation is immediate).
-- Session persists across PWA launches (Supabase default localStorage persistence is acceptable; tokens are origin-scoped per subdomain — this is why patient and desk are separate URL families).
+- Session persists across PWA launches (Supabase default localStorage persistence is acceptable; tokens are origin-scoped per subdomain — this is why patient and doctor are separate URL families).
 
 ### 5.3 The consult turn (text or voice) — one code path
 
@@ -325,7 +325,7 @@ The registry lives in `supabase/functions/_shared/agents/`. Per-hospital overrid
 
 ### 7.2 Orchestrator (`ai-consult` Edge Function)
 
-- Routes each turn by consult status + app: `active` + patient app → patient-mode pipeline; `pending_review` + desk → coordinator mode.
+- Routes each turn by consult status + app: `active` + patient app → patient-mode pipeline; `pending_review` + Doctor app → coordinator mode.
 - **MVP simplification (mandated, per PRD §3B.2):** in **MVP-0 the Doctor Agent runs alone** — one LLM call whose intake stage covers the Receptionist's greeting/resume duties. The **Receptionist splits out as its own registry entry in MVP-1** (own prompt stage, same or separate call — config, not refactor). Do not build multi-call agent chains, agent-to-agent messaging, or a planning loop in MVP. The registry seam is what preserves the option (AP-7).
 - Merges are trivial in MVP (single agent output). The merge point exists as a named function (`composeMiraTurn`) so specialist opinions have a place to land in phase 2.
 - Enforces quotas before calling any provider: max turns/consult, max tokens/call, per-hospital daily consult quota (covers LLM + STT + TTS spend). Quota-exceeded returns a graceful spoken/text wrap-up, never a raw error.
@@ -451,12 +451,12 @@ The trace is a **read model, not new write paths**: every step of a consult alre
 
 ### 10.1 Rules
 
-1. **Single source**: every visual element used by both apps lives in `packages/ui`. App-local components are allowed only when genuinely app-specific (e.g., the desk's queue card); the moment the second app needs it, it moves to `packages/ui` in the same PR.
+1. **Single source**: every visual element used by both apps lives in `packages/ui`. App-local components are allowed only when genuinely app-specific (e.g., the Doctor app's queue card); the moment the second app needs it, it moves to `packages/ui` in the same PR.
 2. **Presentational only**: `ui` components take props and callbacks; they never fetch, never import `api`/`voice`, never read router or Supabase state.
 3. **Tokens only**: no literal colors, font sizes, spacing, radii, or shadows in any component — CSS variables from `packages/theme` exclusively (`--vd-accent`, `--vd-surface`, `--vd-text`, `--vd-radius-*`, `--vd-space-*`, `--vd-font-*`). This is what makes hospital branding and dark mode zero-component-change.
 4. **Accessibility floor**: every interactive component keyboard-operable, labeled, WCAG AA contrast in both themes; the consult screen fully usable with screen reader + text mode (the voice product must not be voice-*only*).
 5. Each component ships with: types, a minimal usage doc-comment, and a Testing Library test for its states. No Storybook in MVP (revisit when a designer joins).
-6. **Responsive by design (PRD UI-1, MVP-0)**: styles are written mobile-first; the only allowed breakpoints are the named `tablet`/`desktop` constants from `packages/theme` (DEC-15) — no ad-hoc pixel values in media queries. Page-level reflow belongs to layout components (`AppShell` and per-app layout shells), not to leaf components; a leaf component that must adapt to its own width uses a container query, not a viewport query. Touch targets ≥ 44px at every breakpoint. The Doctor Desk's queue + review screen is the canonical case: stacked single-column on phone, queue-beside-review on tablet, three-pane (queue / transcript+draft / `PatientHistoryPanel`) on desktop — designed per breakpoint, not scaled.
+6. **Responsive by design (PRD UI-1, MVP-0)**: styles are written mobile-first; the only allowed breakpoints are the named `tablet`/`desktop` constants from `packages/theme` (DEC-15) — no ad-hoc pixel values in media queries. Page-level reflow belongs to layout components (`AppShell` and per-app layout shells), not to leaf components; a leaf component that must adapt to its own width uses a container query, not a viewport query. Touch targets ≥ 44px at every breakpoint. The Doctor app's queue + review screen is the canonical case: stacked single-column on phone, queue-beside-review on tablet, three-pane (queue / transcript+draft / `PatientHistoryPanel`) on desktop — designed per breakpoint, not scaled.
 
 ### 10.2 Canonical inventory (check here before creating anything)
 
@@ -464,12 +464,12 @@ The trace is a **read model, not new write paths**: every step of a consult alre
 |---|---|---|
 | `MiraPresence` | Mira's visual embodiment | Contract in §10.3; `OrbPresence` is the MVP implementation |
 | `TranscriptView` | scrolling conversation, interim-transcript rendering | both apps |
-| `ComposerBar` | text input + mic toggle + tap-to-finish | patient app; desk reuses for Ask-Mira |
-| `RecommendationCard` | structured draft: items, why, advice, urgency | patient (read-only) + desk (editable variant) |
-| `PrescriptionView` | approved prescription, print/share layout | patient + desk |
+| `ComposerBar` | text input + mic toggle + tap-to-finish | patient app; Doctor app reuses for Ask-Mira |
+| `RecommendationCard` | structured draft: items, why, advice, urgency | patient (read-only) + Doctor app (editable variant) |
+| `PrescriptionView` | approved prescription, print/share layout | patient + Doctor app |
 | `ConsultStatusBadge`, `UrgencyBadge`, `ConfidenceBadge`, `SafetyFlagList` | status chips | shared |
-| `QueueCard` | consult summary card for the review queue | desk (lives in ui for future admin reuse) |
-| `PatientHistoryPanel` | profile + prior consults side panel | desk |
+| `QueueCard` | consult summary card for the review queue | Doctor app (lives in ui for future admin reuse) |
+| `PatientHistoryPanel` | profile + prior consults side panel | Doctor app |
 | `EmergencyInterstitial` | red-flag full-screen guidance | patient |
 | `AiDisclosureBadge` | persistent "AI doctor — reviewed by a human physician" | patient, always visible in consult |
 | Primitives | `Button`, `Card`, `Sheet/Drawer`, `Dialog`, `TextField`, `Select`, `Toast`, `Skeleton`, `EmptyState`, `AppShell` (header/nav/safe-areas; owns page-level breakpoint reflow per §10.1 rule 6) | build once, first phase that needs them |
@@ -533,7 +533,7 @@ Per-hospital daily consult quota + per-consult turn cap + per-call token cap, en
 
 **Preload / prefetch (resource hints — starting the work before the tap, not after it):**
 - `rel="preconnect"` to the Supabase project URL and the hospital's configured voice-provider WSS endpoint, emitted on shell load — the TLS/WS handshake is already warm by the time a patient taps "Talk to Dr. Mira," rather than starting cold inside the §6.1 latency budget.
-- `rel="modulepreload"` for the consult route's JS chunk from the patient home/records screen, and for the review-screen chunk from the desk's queue — the one screen a user is statistically about to open is speculatively fetched while they're still looking at the current one, so the tap itself triggers a render, not a fetch-then-render.
+- `rel="modulepreload"` for the consult route's JS chunk from the patient home/records screen, and for the review-screen chunk from the Doctor app's queue — the one screen a user is statistically about to open is speculatively fetched while they're still looking at the current one, so the tap itself triggers a render, not a fetch-then-render.
 - Fonts self-hosted and `rel="preload"` (already decided, §11.1) — no FOIT/FOUT.
 - **Voice-token pre-warm**: `voice-token` is called optimistically the moment the consult screen mounts (before the patient taps "Talk"), so the STT/TTS session is already authorized when they start speaking — this shrinks perceived latency without changing anything the §6.1 budget measures.
 
@@ -555,7 +555,7 @@ This section is binding from **Phase 0** (shell precache + resource-hint skeleto
 
 Phases map onto the PRD's release ladder (PRD §2): **Phases 0–4 = MVP-0** (validate the core loop with one pilot hospital), **Phases 5–6 = MVP-1** (widen once the loop is proven). Rules: phases ship in order; a phase is done only when its acceptance checks pass in CI/staging; "do not build yet" lists are binding. Each phase ends with a tagged, deployable state.
 
-> **Gate G-1 (RA-1, blocking):** the Doctor Desk portion of Phase 2 does not start until at least **2 named doctors at the pilot hospital have reviewed mock AI drafts and agreed in writing to sign real ones** (PRD §2A). This is a product gate, not an engineering task — engineering proceeds through Phase 0–1 and the patient side of Phase 2 while it's pursued. If RA-1 fails, stop and re-plan; do not build the desk on hope.
+> **Gate G-1 (RA-1, blocking):** the Doctor app portion of Phase 2 does not start until at least **2 named doctors at the pilot hospital have reviewed mock AI drafts and agreed in writing to sign real ones** (PRD §2A). This is a product gate, not an engineering task — engineering proceeds through Phase 0–1 and the patient side of Phase 2 while it's pursued. If RA-1 fails, stop and re-plan; do not build the Doctor app on hope.
 
 ### — MVP-0 (single pilot hospital, tenant seeded directly; multi-tenant *schema* from day one) —
 
@@ -565,19 +565,19 @@ Phases map onto the PRD's release ladder (PRD §2): **Phases 0–4 = MVP-0** (va
 **Do not build yet:** any Supabase table beyond `hospitals`, any AI call, any voice code, subdomain plumbing.
 
 ### Phase 1 — Data platform & auth (goal: tenancy is real and provably isolated)
-**Deliverables:** full schema + RLS (§8, incl. `consult_events`, the `consult_trace` view, the state-machine trigger, and the one-open-consult index) as migrations; seed script (2 hospitals — pilot + a synthetic second tenant to keep isolation honest — 2 doctors each, sample patients); Supabase Auth wired (Google for patient app, email/pw for desk); profile wizard with 18+ DOB enforcement (§5.6); generated DB types in `packages/api` + base query hooks; RLS negative-test suite in CI.
+**Deliverables:** full schema + RLS (§8, incl. `consult_events`, the `consult_trace` view, the state-machine trigger, and the one-open-consult index) as migrations; seed script (2 hospitals — pilot + a synthetic second tenant to keep isolation honest — 2 doctors each, sample patients); Supabase Auth wired (Google for patient app, email/pw for Doctor app); profile wizard with 18+ DOB enforcement (§5.6); generated DB types in `packages/api` + base query hooks; RLS negative-test suite in CI.
 **Accept:** the four cross-tenant denial tests pass; a patient can sign in, complete profile, see an empty records list; a doctor sees an empty queue for *their* hospital only; an under-18 DOB is rejected at profile completion.
 **Do not build yet:** AI, voice, review actions.
 
 ### Phase 2 — Text consult, end to end (goal: the full loop works before voice exists)
-**Deliverables:** `ai-consult` Edge Function with orchestrator, agent registry (**Doctor Agent alone**, §7.2), context assembly, safety layers 1–3, quotas; patient consult UI (text mode: `TranscriptView`, `ComposerBar`, `RecommendationCard`, `EmergencyInterstitial`, `AiDisclosureBadge`); consult lifecycle to `pending_review`; lifecycle timers via `pg_cron` (§5.6: SLA warn/escalate, 24 h expiry, 30 min abandonment) with rejection/expiry patient messaging; **[gated by G-1]** desk queue (Realtime) + review screen + approve/edit/reject RPCs + audit `reviews`; patient records list + `PrescriptionView`; operator trace access (the `consult_trace` view + `docs/ops.md` queries + `export_consult_trace` RPC).
-**Accept:** scripted E2E: patient completes a text consult → doctor edits + approves → patient sees the signed prescription — **and the consult's trace timeline contains every step of that journey** (turns, draft, queued, doctor_opened, decision + diff, notification, closure); allergy hard-rule blocks a conflicting draft in post-validation; red-flag input produces urgent flag + interstitial; starting a second consult resumes the open one; timers fire in a clock-mocked test; all actions audited; the desk queue + review screen reflows per §10.1 rule 6 (single-column at phone width, multi-pane at desktop width — verified at both viewports in the E2E).
-**Do not build yet:** any STT/TTS, desk voice, images, push, Receptionist agent.
+**Deliverables:** `ai-consult` Edge Function with orchestrator, agent registry (**Doctor Agent alone**, §7.2), context assembly, safety layers 1–3, quotas; patient consult UI (text mode: `TranscriptView`, `ComposerBar`, `RecommendationCard`, `EmergencyInterstitial`, `AiDisclosureBadge`); consult lifecycle to `pending_review`; lifecycle timers via `pg_cron` (§5.6: SLA warn/escalate, 24 h expiry, 30 min abandonment) with rejection/expiry patient messaging; **[gated by G-1]** Doctor app queue (Realtime) + review screen + approve/edit/reject RPCs + audit `reviews`; patient records list + `PrescriptionView`; operator trace access (the `consult_trace` view + `docs/ops.md` queries + `export_consult_trace` RPC).
+**Accept:** scripted E2E: patient completes a text consult → doctor edits + approves → patient sees the signed prescription — **and the consult's trace timeline contains every step of that journey** (turns, draft, queued, doctor_opened, decision + diff, notification, closure); allergy hard-rule blocks a conflicting draft in post-validation; red-flag input produces urgent flag + interstitial; starting a second consult resumes the open one; timers fire in a clock-mocked test; all actions audited; the Doctor app's queue + review screen reflows per §10.1 rule 6 (single-column at phone width, multi-pane at desktop width — verified at both viewports in the E2E).
+**Do not build yet:** any STT/TTS, Doctor app voice, images, push, Receptionist agent.
 
 ### Phase 3 — Patient voice (goal: the product's core experience at target latency)
 **Deliverables:** `packages/voice` (state machine, sentence splitter, Deepgram + ElevenLabs adapters, webspeech dev adapter); `voice-token` function; `OrbPresence` ported from prototype; call-screen layout; barge-in; mixed voice/text turns; latency instrumentation (§6.1); spoken AI disclosure at consult start.
 **Accept:** hands-free consult end-to-end on a mid-range Android; p50 end-of-speech → first audio < 1.5 s, p95 < 3 s on staging; mic-denied path falls back to full text consult; timestamps observable flowing to `MiraPresence` props.
-**Do not build yet:** desk voice, avatar work of any kind.
+**Do not build yet:** Doctor app voice, avatar work of any kind.
 
 ### Phase 4 — MVP-0 hardening & pilot launch (goal: live with the design-partner hospital)
 **Deliverables:** quotas + `usage_events` + operator dashboard queries (PRD §8 and RA-2/RA-3 gate metrics measurable); Sentry + Web Vitals; security pass (headers/CSP, dependency audit, RLS re-review); accessibility pass; responsive pass — both apps exercised at phone/tablet/desktop widths against §10.1 rule 6 (UI-1); a DEC-16 readiness check (no raw capability APIs outside `packages/platform`/`voice`, no browser-chrome-dependent flows); **PWA hardening pass (§11.4)**: full caching-strategy matrix in place and verified per resource class, DEC-18 query-cache persistence live for theme/profile/records, preload/prefetch hints (route modulepreload, voice-token pre-warm) measured to actually shave latency, SW update-toast flow tested (no silent mid-consult reload), bfcache-eligibility check added to CI; PWA install polish + offline records; load sanity test (50 concurrent consults); pilot runbook (rota/SLA config for the hospital, incident + breach-notification runbooks).
@@ -586,8 +586,8 @@ Phases map onto the PRD's release ladder (PRD §2): **Phases 0–4 = MVP-0** (va
 
 ### — MVP-1 (widen once the loop is proven; entry criteria = RA-2/RA-3 gates holding in the pilot, PRD §2A) —
 
-### Phase 5 — Desk coordinator voice (goal: Mira presents; the doctor converses)
-**Deliverables:** coordinator mode in the orchestrator (SBAR presentation, grounded Q&A with citations per D-8, conversational edits per D-9 — `action:'edit'` updates the on-screen draft only); desk reuses `packages/voice` + `MiraPresence`; per-doctor mute/skip preference (persisted); `review_messages` audit (in the trace); `mira_feedback` capture UI.
+### Phase 5 — Doctor app coordinator voice (goal: Mira presents; the doctor converses)
+**Deliverables:** coordinator mode in the orchestrator (SBAR presentation, grounded Q&A with citations per D-8, conversational edits per D-9 — `action:'edit'` updates the on-screen draft only); Doctor app reuses `packages/voice` + `MiraPresence`; per-doctor mute/skip preference (persisted); `review_messages` audit (in the trace); `mira_feedback` capture UI.
 **Accept:** doctor opens a case, hears the presentation, asks two history questions answered with on-screen citations, dictates an edit, sees the draft change, signs via UI; voice cannot trigger approval (test exists); presentation skippable; the review conversation appears in the consult trace.
 **Do not build yet:** specialist/pharmacy agents, outbound calls.
 
@@ -602,11 +602,11 @@ Phases map onto the PRD's release ladder (PRD §2): **Phases 0–4 = MVP-0** (va
 **Hard sequential dependencies (cannot start before the prior phase's acceptance checks pass):**
 ```
 Phase 0 → Phase 1 → Phase 2 (text loop) → Phase 3 (voice) → Phase 4 (hardening/launch)
-Phase 4 → Phase 5 (desk voice) → Phase 6 (multi-tenant delivery)
+Phase 4 → Phase 5 (Doctor app voice) → Phase 6 (multi-tenant delivery)
 ```
 These are hard because each depends on a runtime contract the prior phase produces (Phase 1's schema/RLS before any data-touching feature; Phase 2's working text consult loop before voice is layered on top of the same orchestrator; Phase 4's live pilot before widening to a second tenant).
 
-**Already-explicit parallel split (Phase 2):** the patient-side consult loop and the Doctor Desk are independently buildable; only the desk build is gated behind **G-1**. A team can build/ship the patient-side portion of Phase 2 while G-1 is still being pursued — this was already correct in v1.2, just restated here as the pattern for the rest of this section.
+**Already-explicit parallel split (Phase 2):** the patient-side consult loop and the Doctor app are independently buildable; only the Doctor app build is gated behind **G-1**. A team can build/ship the patient-side portion of Phase 2 while G-1 is still being pursued — this was already correct in v1.2, just restated here as the pattern for the rest of this section.
 
 **Sub-phase work packages (same phase, splittable across parallel workstreams, coordinate only at the named seam):**
 - **Phase 1** is one phase but four independent packages behind one seam (the migration sequence number): (a) schema + RLS policies, (b) the state-machine trigger + `consult_events` + `consult_trace` view, (c) Supabase Auth wiring + profile wizard, (d) seed script + RLS negative-test suite. Running these in parallel is safe *only* if migration numbering is coordinated (one owner rebases/renumbers before merge) — the risk isn't the work, it's two agents claiming the same migration number.
@@ -691,4 +691,4 @@ Baseline (DEC-10): **India-first**. HIPAA/ABDM are design considerations — the
 | **trace** | The Consult Trace: one chronological, exportable timeline of everything that happened in a consult (§8.5) |
 | **tenant / hospital** | Interchangeable; `hospital` in code |
 | **operator** | The platform owner (you) |
-| **MVP-0 / MVP-1** | The two MVP increments (PRD §2): core loop with one pilot hospital → widen (desk voice, tenancy delivery, photos, push) |
+| **MVP-0 / MVP-1** | The two MVP increments (PRD §2): core loop with one pilot hospital → widen (Doctor app voice, tenancy delivery, photos, push) |

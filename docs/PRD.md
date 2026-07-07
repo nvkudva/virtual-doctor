@@ -1,6 +1,6 @@
 # Virtual Doctor — Product Requirements Document
 
-**Version:** 0.2 (revised after PM review — MVP re-scoped into MVP-0/MVP-1, riskiest assumptions, lifecycle edge cases, and risks added)
+**Version:** 0.3 (v0.2 revised after PM review — MVP re-scoped into MVP-0/MVP-1, riskiest assumptions, lifecycle edge cases, and risks added; v0.3 renames the "Doctor Desk" app to **Doctor App** throughout, matching "Patient App" — naming only, no scope change)
 **Date:** 2026-07-07
 **Status:** Awaiting review — the implementation Action Plan will be written after this PRD is approved.
 
@@ -15,7 +15,7 @@ Hospitals want a digital front door, but existing telemedicine platforms are eit
 **Virtual Doctor** solves this with two PWAs served from one codebase:
 
 - **Patient App** — a hospital-branded PWA where a patient signs in and **speaks with *Dr. Mira***, an empathetic AI physician, the way they would speak to a doctor on a phone call. Dr. Mira is the **primary doctor** in the experience: she greets the patient aloud, listens, asks questions one at a time in a natural, caring voice, and concludes with a recommended plan (prescription or investigations) — everything a real doctor would do on a first call. Voice is the primary medium; text chat is a secondary aid (typing a medicine name, answering when speaking isn't possible). The app clearly discloses that Dr. Mira is an AI, and the patient can view all past visits and prescriptions.
-- **Doctor Desk** — a PWA for the hospital's doctors, showing a review queue of AI-drafted consults. Here Dr. Mira plays her second role: **case coordinator**. She *presents* each case to the real doctor the way a junior doctor presents to a senior — speaking naturally through the same voice (later video-avatar) interface: the patient's story, her working diagnosis, her reasoning, and her recommendation. The doctor can interrupt and ask her anything about the patient — history, prior consults, labs, allergies — and she answers from full patient context. Because the case arrives pre-worked and well-presented, the doctor approves (or edits/rejects) in minimal time, and the patient instantly receives a doctor-signed prescription. Traditional visual review (transcript, structured draft, forms) remains fully available; the conversation is an accelerator, not a replacement.
+- **Doctor App** — a PWA for the hospital's doctors, showing a review queue of AI-drafted consults. Here Dr. Mira plays her second role: **case coordinator**. She *presents* each case to the real doctor the way a junior doctor presents to a senior — speaking naturally through the same voice (later video-avatar) interface: the patient's story, her working diagnosis, her reasoning, and her recommendation. The doctor can interrupt and ask her anything about the patient — history, prior consults, labs, allergies — and she answers from full patient context. Because the case arrives pre-worked and well-presented, the doctor approves (or edits/rejects) in minimal time, and the patient instantly receives a doctor-signed prescription. Traditional visual review (transcript, structured draft, forms) remains fully available; the conversation is an accelerator, not a replacement.
 
 The AI never prescribes on its own. Every recommendation is a **draft** until a licensed doctor approves it — the AI compresses the intake, the doctor keeps the judgment.
 
@@ -31,13 +31,13 @@ The MVP is deliberately split into two increments so the riskiest assumptions (�
 
 **MVP-0 — validate the core loop with one pilot hospital:**
 - Voice-first patient consult with Dr. Mira (Goal 1) for a single design-partner hospital; tenant config seeded directly (no subdomain plumbing yet).
-- **Visual-only Doctor Desk**: queue, transcript, editable draft, approve/edit/reject with full audit (D-1 – D-6). Mira's spoken presentation, Q&A, and conversational edits (D-7 – D-9) are MVP-1.
+- **Visual-only Doctor App**: queue, transcript, editable draft, approve/edit/reject with full audit (D-1 – D-6). Mira's spoken presentation, Q&A, and conversational edits (D-7 – D-9) are MVP-1.
 - Patient records and prescription views (Goal 3).
 - A **single Doctor Agent** behind the Mira persona — no Receptionist split yet; the orchestration layer still exposes logical agent boundaries per §3B.2 so the split is config later.
 - No patient image sharing.
 
 **MVP-1 — widen once the loop is proven:**
-- Coordinator-mode voice on the Doctor Desk (D-7, D-8, D-9) — reuses the proven patient voice stack.
+- Coordinator-mode voice on the Doctor App (D-7, D-8, D-9) — reuses the proven patient voice stack.
 - Multi-tenant *delivery*: subdomain resolution, per-tenant manifest/branding, operator onboarding (UC-4, Goal 4).
 - Patient photo sharing + Mira image analysis (`consult_media`).
 - Receptionist/Doctor agent split (§3B.1).
@@ -70,7 +70,7 @@ The MVP is an experiment before it is a product. Each release increment exists t
 
 | # | Assumption | How MVP tests it | Gate / kill signal |
 |---|---|---|---|
-| **RA-1** | **Licensed doctors will put their name on AI-drafted prescriptions.** Liability comfort, not UX, is the adoption bottleneck. | Recruit **one design-partner hospital and 2–3 named doctors before building the Doctor Desk**; walk them through mock AI drafts and the audit/immutability model; get written intent to pilot. | **Blocking gate**: Desk build does not start until at least 2 doctors at the pilot hospital have reviewed mock drafts and agreed to sign real ones. Kill signal: doctors insist on re-doing the intake themselves. |
+| **RA-1** | **Licensed doctors will put their name on AI-drafted prescriptions.** Liability comfort, not UX, is the adoption bottleneck. | Recruit **one design-partner hospital and 2–3 named doctors before building the Doctor App**; walk them through mock AI drafts and the audit/immutability model; get written intent to pilot. | **Blocking gate**: Doctor App build does not start until at least 2 doctors at the pilot hospital have reviewed mock drafts and agreed to sign real ones. Kill signal: doctors insist on re-doing the intake themselves. |
 | **RA-2** | **Patients will trust and complete a voice consult with a disclosed AI.** | MVP-0 pilot: consult completion rate (started → submitted) and % conducted primarily by voice (§8). | Kill/pivot signal: completion < 40 % or most completions fall back to text — revisit voice-first as the primary medium. |
 | **RA-3** | **Draft quality is high enough that review takes < 2 min and ≥ 80 % of drafts are approved with zero/minor edits.** | Measured directly from `reviews` audit data during the pilot; operator audits 100 % of MVP-0 consults via the Consult Trace (§5.4). | Kill signal: sustained approval-with-minor-edits < 50 % or median review > 5 min — the "AI compresses intake" value proposition isn't holding. |
 
@@ -81,8 +81,8 @@ The MVP is an experiment before it is a product. Each release increment exists t
 | Persona | Description | App |
 |---|---|---|
 | **Patient** | An outpatient of a specific hospital. Uses a phone. Wants quick help without a waiting room. May have limited tech literacy. | Patient App |
-| **Doctor** | A licensed physician at the hospital. Reviews AI-drafted consults between (or instead of) in-person visits, working with Dr. Mira as a presenting assistant. Values speed, trustworthy grounding, and safety flags. | Doctor Desk |
-| **Hospital Admin** | Manages the hospital's doctors and branding. MVP: managed via database/console; a dedicated admin UI is phase 2. | (Doctor Desk, admin role) |
+| **Doctor** | A licensed physician at the hospital. Reviews AI-drafted consults between (or instead of) in-person visits, working with Dr. Mira as a presenting assistant. Values speed, trustworthy grounding, and safety flags. | Doctor App |
+| **Hospital Admin** | Manages the hospital's doctors and branding. MVP: managed via database/console; a dedicated admin UI is phase 2. | (Doctor App, admin role) |
 | **Platform Operator** | You. Onboards hospitals, monitors AI quality and costs. | Console/SQL |
 
 ---
@@ -116,7 +116,7 @@ Dr. Mira is a **super expert**: to the user she is one person, but behind the po
 6. The recommendation is **recorded into the system** and sent to the **real doctor's queue** for approval, rejection, or modification.
 7. She does this **concurrently for all patients of the hospital** (see A-10).
 
-**Part 2 — With the real doctor (Doctor Desk):**
+**Part 2 — With the real doctor (Doctor App):**
 1. When the doctor opens a case (or "calls" her), Mira is **instantly available** and speaks naturally — **assuming the doctor may have already seen the diagnosis/report on screen**, so she confirms rather than re-narrates: brief hand-off, then "does this look right to you, or would you change anything?"
 2. If the doctor suggests changes, she **updates the prescription, lab tests, or advice** accordingly and records the revision in the system.
 3. **After the doctor's confirmation**, she **notifies the customer**: in-app notification always; and if needed, a **virtual call to the patient** to explain the next steps in person *(outbound Mira call: later phase; MVP notifies in-app/push)*.
@@ -125,7 +125,7 @@ Dr. Mira is a **super expert**: to the user she is one person, but behind the po
 ### 3A.3 The Real Doctor
 
 **Who they are & assumptions:**
-- A licensed physician working "in the background" on the Doctor Desk — the patient's primary experience is with Mira; the real doctor is the quality and legal gate.
+- A licensed physician working "in the background" on the Doctor App — the patient's primary experience is with Mira; the real doctor is the quality and legal gate.
 - There are **many real doctors** per hospital, and many hospitals — the queue and Mira sessions must be per-doctor and per-hospital.
 
 **Primary job:**
@@ -220,7 +220,7 @@ The Doctor Agent is Mira's clinical brain and carries both of her modes (A-9):
 8. The consult enters status `pending_review`. The patient sees "A doctor is reviewing your consultation" with the AI's summary (clearly labeled *not yet approved*).
 
 ### UC-2: Dr. Mira presents the case; the doctor reviews and approves
-1. Doctor opens `⟨hospital⟩.desk.⟨domain⟩`, signs in with email/password.
+1. Doctor opens `⟨hospital⟩.doctor.⟨domain⟩`, signs in with email/password.
 2. Sees the review queue for their hospital, ordered by urgency then age. Each card: patient name/age, chief complaint, AI confidence, safety flags.
 3. Opens a consult. Dr. Mira **presents the case aloud**, concisely, in clinical hand-off style: "Alex Kumar, 34, male — two weeks of productive cough, no fever, penicillin-allergic. My assessment is … I'm recommending … because …". The structured view (transcript, AI note, editable draft, patient profile + history side panel) is on screen throughout.
 4. The doctor converses with Mira naturally, as with an assisting subordinate doctor: "Has he had this before?", "What was his last prescription?", "Why not an X-ray?" — Mira answers instantly from the full patient record (profile, prior consults, prescriptions, and later lab results). Voice or text, the doctor's choice; the presentation can also be skipped entirely for silent visual review.
@@ -235,15 +235,15 @@ The Doctor Agent is Mira's clinical brain and carries both of her modes (A-9):
 
 ### UC-4: Platform operator onboards a hospital
 1. Operator inserts a hospital row (name, slug, logo, theme colors) and creates doctor accounts.
-2. DNS wildcard already covers `*.patient.⟨domain⟩` and `*.desk.⟨domain⟩`; the app resolves the tenant from the subdomain at runtime.
-3. The hospital's Patient App and Doctor Desk are immediately live with the hospital's branding (name, logo, accent color via CSS variables).
+2. DNS wildcard already covers `*.patient.⟨domain⟩` and `*.doctor.⟨domain⟩`; the app resolves the tenant from the subdomain at runtime.
+3. The hospital's Patient App and Doctor App are immediately live with the hospital's branding (name, logo, accent color via CSS variables).
 
 ---
 
 ## 5. Functional Requirements
 
 ### 5.0 Cross-cutting: Responsive UI & native-shell readiness (both apps)
-- **UI-1** *(MVP-0)* **Adaptive layout, not just "doesn't break."** Both the Patient App and Doctor Desk are used across phones, tablets, and desktop browsers — a patient may consult from a phone, a doctor may review from a tablet on rounds or a desktop at a workstation. Layouts must be designed mobile-first and reflow deliberately at tablet/desktop breakpoints (e.g. the Doctor Desk's queue + review screen goes from stacked single-column on phone to a two/three-pane layout on desktop), not simply scale a phone or desktop layout up/down. Touch targets, the voice orb, and the review screen's side panels are all specified per breakpoint, not assumed.
+- **UI-1** *(MVP-0)* **Adaptive layout, not just "doesn't break."** Both the Patient App and Doctor App are used across phones, tablets, and desktop browsers — a patient may consult from a phone, a doctor may review from a tablet on rounds or a desktop at a workstation. Layouts must be designed mobile-first and reflow deliberately at tablet/desktop breakpoints (e.g. the Doctor App's queue + review screen goes from stacked single-column on phone to a two/three-pane layout on desktop), not simply scale a phone or desktop layout up/down. Touch targets, the voice orb, and the review screen's side panels are all specified per breakpoint, not assumed.
 - **UI-2** *(later phase, not MVP)* **Native app container.** The long-term plan is to wrap both PWAs in native containers (e.g. Capacitor/Trusted Web Activity) for app-store distribution, mirroring the video-avatar pattern (§2 Non-Goals): deferred, but the end-state, not a maybe. Every MVP-0/MVP-1 frontend decision should assume this eventually happens: avoid browser-only APIs with no native equivalent, keep platform-specific code (notifications, storage, mic access) behind an abstraction rather than scattered through components, and don't build UI that assumes a browser chrome (URL bar, browser-back) is always present. This costs little now and avoids a rewrite later.
 - **P-1** Google sign-in (Supabase Auth OAuth). Session persists across PWA launches.
 - **P-2** First-run health profile wizard; editable later. Fields: full name, DOB, sex, blood group, allergies (structured list), chronic conditions, current medications.
@@ -256,7 +256,7 @@ The Doctor Agent is Mira's clinical brain and carries both of her modes (A-9):
 - **P-6** PWA: installable, app icon/name per hospital brand, offline shell (records cached read-only; consults require connectivity); responsive per UI-1 (§5.0) across phone, tablet, desktop.
 - **P-7** Emergency interstitial when the AI flags urgent symptoms.
 
-### 5.2 Doctor Desk
+### 5.2 Doctor App
 - **D-1** Email/password sign-in; accounts provisioned per hospital (no self-signup).
 - **D-2** Review queue: filter by status, sorted urgent-first; real-time updates when new consults arrive (Supabase Realtime).
 - **D-3** Consult review screen: transcript, AI note, editable draft recommendation, patient profile + history side panel.
@@ -313,7 +313,7 @@ Monorepo (npm workspaces + Turborepo optional) with **Vite + React 19 + TypeScri
 virtual-doctor/
 ├── apps/
 │   ├── patient/          # Vite app → patient PWA (own entry, own manifest, own service worker)
-│   └── desk/             # Vite app → doctor desk PWA
+│   └── doctor/           # Vite app → Doctor PWA
 ├── packages/
 │   ├── ui/               # shared component library (buttons, cards, MiraOrb, layout primitives)
 │   ├── theme/            # design tokens as CSS variables (light/dark + per-hospital accent)
@@ -327,8 +327,8 @@ virtual-doctor/
     └── functions/        # Edge Functions (ai-consult, voice-token, tenant-manifest)
 ```
 
-- Two independent Vite builds → two deploy targets → two URL families. Each app bundles **only** what it imports from `packages/*` (tree-shaken); the patient never downloads doctor-desk code and vice versa.
-- **Both apps are voice apps.** `packages/voice` (the conversation engine) and `<MiraPresence>` in `packages/ui` are consumed by *both* the patient app (Mira in patient mode) and the desk (Mira in coordinator mode) — the strongest driver of the shared-library architecture: one voice/presence stack, two personas, two apps.
+- Two independent Vite builds → two deploy targets → two URL families. Each app bundles **only** what it imports from `packages/*` (tree-shaken); the patient never downloads doctor-app code and vice versa.
+- **Both apps are voice apps.** `packages/voice` (the conversation engine) and `<MiraPresence>` in `packages/ui` are consumed by *both* the patient app (Mira in patient mode) and the Doctor app (Mira in coordinator mode) — the strongest driver of the shared-library architecture: one voice/presence stack, two personas, two apps.
 - `vite-plugin-pwa` per app for service worker, precaching, and installability.
 - Styling: **CSS variables** for all design tokens (`--vd-accent`, `--vd-surface`, spacing/typography scale) defined in `packages/theme`; components in `packages/ui` consume tokens only, so hospital branding and dark mode are runtime variable swaps with zero component changes. Lightweight styling via CSS modules (no runtime CSS-in-JS — keeps bundles small and paint fast).
 - State/data: TanStack Query over the Supabase JS client; Supabase Realtime subscription for the doctor queue.
@@ -419,7 +419,7 @@ The end-state experience is a **video call with Dr. Mira** — a virtual doctor 
 
 | # | Risk | Likelihood / Impact | Mitigation |
 |---|---|---|---|
-| **R-1** | **Doctor liability concerns stall adoption** — doctors decline to sign AI-drafted prescriptions, or hospital leadership blocks the pilot. | Med / **Fatal** | Design-partner gate before desk build (RA-1, §2A); immutable audit trail with draft-vs-approved diff (D-4/D-5); doctor can always reject to in-person; feedback channel (`mira_feedback`) gives doctors control over Mira's behavior. |
+| **R-1** | **Doctor liability concerns stall adoption** — doctors decline to sign AI-drafted prescriptions, or hospital leadership blocks the pilot. | Med / **Fatal** | Design-partner gate before Doctor App build (RA-1, §2A); immutable audit trail with draft-vs-approved diff (D-4/D-5); doctor can always reject to in-person; feedback channel (`mira_feedback`) gives doctors control over Mira's behavior. |
 | **R-2** | **Voice latency target (< 1.5 s) unachievable on real Indian 4G** — the conversation feels laggy, undermining the core interaction. | Med / High | Streaming end-to-end (A-6) with TTS starting on first sentence; text channel always available (P-3a) with graceful degradation on poor networks as an explicit requirement; measure p50/p95 from the pilot's real devices, not lab conditions. |
 | **R-3** | **Unit economics don't close** — voice (STT+TTS) + LLM cost per consult (~₹3–15 voice alone) exceeds what a small hospital will pay per consult. | Med / High | Per-consult cost tracked from day one (A-5 covers LLM+STT+TTS spend); per-hospital quotas; provider choice (Q2) made on cost *and* quality; cheaper TTS tier acceptable for MVP if empathy holds up in testing. |
 | **R-4** | **iOS Safari PWA limitations** — web push restrictions, mic permission quirks, and install friction degrade the patient experience on iPhones. | High / Med | In-app status is the baseline notification path (push is enhancement, Q3 §9.2); mic-denied flow fully supported via text (P-3a); publish a stated browser-support matrix with the pilot; Android-first pilot cohort acceptable for MVP-0. |
@@ -432,7 +432,7 @@ The end-state experience is a **video call with Dr. Mira** — a virtual doctor 
 ### 9.1 Decided (previously open — defaults adopted in v0.2; veto during review if you disagree)
 - **Audio retention (was Q2a)** — **Decided: transcripts only for MVP.** Raw patient audio is streamed for transcription and not retained; lighter privacy burden, transcripts carry the audit value. Revisit if QA needs emerge.
 - **Languages (was Q3)** — **Decided: architect for i18n, ship English first.** All user-facing strings externalized and the voice pipeline provider-selected with Indic-language support in mind; Kannada/Telugu/Hindi are fast-follows, not MVP.
-- **Desk voice sequencing (was Q6)** — **Decided: MVP-1.** The Doctor Desk ships visual-first in MVP-0; coordinator-mode voice (D-7 – D-9) lands in MVP-1 reusing the proven patient voice stack. (Reflected in the §2 release ladder.)
+- **Doctor App voice sequencing (was Q6)** — **Decided: MVP-1.** The Doctor App ships visual-first in MVP-0; coordinator-mode voice (D-7 – D-9) lands in MVP-1 reusing the proven patient voice stack. (Reflected in the §2 release ladder.)
 - **Image sharing (was Q7)** — **Decided: MVP-1 for photos; video later.** Claude vision makes analysis straightforward, but upload UX + storage policies don't belong in the smallest loop-validating build. Related later-phase items remain flagged in §3A: Mira's live research lookup, outbound virtual call, doctor-joined video conferences.
 
 ### 9.2 Still open (please answer during review)
