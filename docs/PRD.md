@@ -1,7 +1,7 @@
 # Virtual Doctor — Product Requirements Document
 
-**Version:** 0.1 (draft for review)
-**Date:** 2026-07-06
+**Version:** 0.2 (revised after PM review — MVP re-scoped into MVP-0/MVP-1, riskiest assumptions, lifecycle edge cases, and risks added)
+**Date:** 2026-07-07
 **Status:** Awaiting review — the implementation Action Plan will be written after this PRD is approved.
 
 ---
@@ -25,12 +25,31 @@ The platform is **multi-tenant**: one deployment serves many hospitals, each wit
 
 ## 2. Goals & Non-Goals
 
+### Release ladder: MVP-0 → MVP-1 → Phase 2
+
+The MVP is deliberately split into two increments so the riskiest assumptions (§2A) are tested with the smallest possible build. **Multi-tenancy remains a design constraint from day one** (schema, RLS, theming tokens are multi-tenant in MVP-0); only its *delivery* (subdomains, onboarding flow) is deferred to MVP-1.
+
+**MVP-0 — validate the core loop with one pilot hospital:**
+- Voice-first patient consult with Dr. Mira (Goal 1) for a single design-partner hospital; tenant config seeded directly (no subdomain plumbing yet).
+- **Visual-only Doctor Desk**: queue, transcript, editable draft, approve/edit/reject with full audit (D-1 – D-6). Mira's spoken presentation, Q&A, and conversational edits (D-7 – D-9) are MVP-1.
+- Patient records and prescription views (Goal 3).
+- A **single Doctor Agent** behind the Mira persona — no Receptionist split yet; the orchestration layer still exposes logical agent boundaries per §3B.2 so the split is config later.
+- No patient image sharing.
+
+**MVP-1 — widen once the loop is proven:**
+- Coordinator-mode voice on the Doctor Desk (D-7, D-8, D-9) — reuses the proven patient voice stack.
+- Multi-tenant *delivery*: subdomain resolution, per-tenant manifest/branding, operator onboarding (UC-4, Goal 4).
+- Patient photo sharing + Mira image analysis (`consult_media`).
+- Receptionist/Doctor agent split (§3B.1).
+
+**Phase 2+** — as per the agent roster (§3B.1) and Non-Goals below.
+
 ### Goals (MVP)
-1. **Voice-first AI consult**: the patient completes a spoken consultation with Dr. Mira in under 5 minutes, hands-free after tapping "Start". Dr. Mira's voice must sound natural, warm, and empathetic — never robotic — and the pause between the patient finishing speaking and Dr. Mira replying must feel conversational (target < 1.5 s to first audio, hard ceiling 3 s).
-2. Async doctor review, accelerated by Mira: the doctor hears a concise spoken case presentation, can question Mira about the patient conversationally, and approves/edits/rejects in under 2 minutes.
-3. Records: patients see their visit history and approved prescriptions; doctors see the patient's history at review time.
-4. Multi-hospital: onboarding a new hospital requires configuration only (a row in the database + a subdomain), zero code changes.
-5. Both apps installable as PWAs with fast first load (< 2.5 s LCP on a mid-range Android phone over 4G).
+1. **Voice-first AI consult** *(MVP-0)*: the patient completes a spoken consultation with Dr. Mira in under 5 minutes, hands-free after tapping "Start". Dr. Mira's voice must sound natural, warm, and empathetic — never robotic — and the pause between the patient finishing speaking and Dr. Mira replying must feel conversational (target < 1.5 s to first audio, hard ceiling 3 s).
+2. Async doctor review, accelerated by Mira *(visual review MVP-0; Mira's spoken presentation and Q&A MVP-1)*: the doctor hears a concise spoken case presentation, can question Mira about the patient conversationally, and approves/edits/rejects in under 2 minutes.
+3. Records *(MVP-0)*: patients see their visit history and approved prescriptions; doctors see the patient's history at review time.
+4. Multi-hospital *(design MVP-0, delivery MVP-1)*: onboarding a new hospital requires configuration only (a row in the database + a subdomain), zero code changes.
+5. Both apps installable as PWAs with fast first load (< 2.5 s LCP on a mid-range Android phone over 4G) *(MVP-0)*.
 
 ### Non-Goals (explicitly out of MVP scope)
 - Appointment booking / scheduling
@@ -41,6 +60,18 @@ The platform is **multi-tenant**: one deployment serves many hospitals, each wit
 - Pharmacy / lab integrations (e-orders)
 - Native mobile apps (PWA only)
 - Regulatory certification (HIPAA/ABDM compliance is a design consideration, not an MVP deliverable)
+
+---
+
+## 2A. Riskiest Assumptions (what the MVP must prove)
+
+The MVP is an experiment before it is a product. Each release increment exists to test these assumptions, listed in order of existential risk. If RA-1 fails, no amount of engineering rescues the product.
+
+| # | Assumption | How MVP tests it | Gate / kill signal |
+|---|---|---|---|
+| **RA-1** | **Licensed doctors will put their name on AI-drafted prescriptions.** Liability comfort, not UX, is the adoption bottleneck. | Recruit **one design-partner hospital and 2–3 named doctors before building the Doctor Desk**; walk them through mock AI drafts and the audit/immutability model; get written intent to pilot. | **Blocking gate**: Desk build does not start until at least 2 doctors at the pilot hospital have reviewed mock drafts and agreed to sign real ones. Kill signal: doctors insist on re-doing the intake themselves. |
+| **RA-2** | **Patients will trust and complete a voice consult with a disclosed AI.** | MVP-0 pilot: consult completion rate (started → submitted) and % conducted primarily by voice (§8). | Kill/pivot signal: completion < 40 % or most completions fall back to text — revisit voice-first as the primary medium. |
+| **RA-3** | **Draft quality is high enough that review takes < 2 min and ≥ 80 % of drafts are approved with zero/minor edits.** | Measured directly from `reviews` audit data during the pilot; operator audits 100 % of MVP-0 consults. | Kill signal: sustained approval-with-minor-edits < 50 % or median review > 5 min — the "AI compresses intake" value proposition isn't holding. |
 
 ---
 
@@ -103,6 +134,8 @@ Dr. Mira is a **super expert**: to the user she is one person, but behind the po
 4. Can request a **real call with the customer** when the case warrants it: Mira creates the appointment, and the doctor joins the patient through the same Patient App — **video conference in a future phase**.
 5. **Gives feedback to Dr. Mira** to improve future performance — corrections, style notes, protocol preferences. Feedback is stored and used to tune prompts/policies over time (and is itself an audit signal).
 
+**Staffing & incentive (pilot requirement):** the queue only works if someone owns it. The pilot agreement must name **who is rostered to watch the queue during clinic hours** (a rota or a designated reviewing doctor per shift) and **how reviews are compensated** (per-review fee, salaried duty, or bundled into OPD load). "Doctors will check it when free" is not a plan — an unwatched queue breaks the instant-availability promise (§3A.1) and triggers the review SLA fallbacks (§3A.5).
+
 ### 3A.4 Case lifecycle (shared mental model)
 
 ```
@@ -114,6 +147,16 @@ active (patient ↔ Mira)
   ↳ escalated (doctor requests real appointment with patient)
 ```
 
+### 3A.5 Lifecycle edge cases (MVP-0 requirements, not deferrable)
+
+These are the holes that bite in week one of a real pilot; each is a requirement, not a nice-to-have:
+
+- **Review SLA**: a consult in `pending_review` longer than **2 hours during clinic hours** notifies the patient of the delay and escalates to the hospital's admin contact; longer than **24 hours**, the consult expires (`expired`) with an apology message and clear guidance to visit in person. Both timers are per-hospital configuration. The urgent flag (UC-1.7) is independent of this — urgent guidance is delivered immediately regardless of review latency.
+- **Abandonment**: an `active` consult with no patient turn for **30 minutes** auto-closes as `abandoned`. The patient can start a fresh consult at any time; Mira may reference the abandoned attempt naturally ("we started talking about your cough earlier…").
+- **Rejection path (patient side)**: a rejected consult always shows the doctor's reason and a concrete next step (e.g. "please visit the hospital in person — show this consult at the front desk"). Rejection is never a dead end.
+- **Concurrent consults**: **one open consult per patient per hospital.** Tapping "Talk to Dr. Mira" with a consult already `active` resumes it; with one `pending_review`, the patient sees its status and can add a note, but cannot open a second parallel consult.
+- **Identity & eligibility**: Google sign-in authenticates the *account*, not the *person* — the health profile is self-attested, and the prescription record notes this. **MVP serves adults (18+) only**, stated at onboarding and enforced via DOB; minors/caregiver flows are explicitly out of scope until a guardian-consent design exists.
+
 ---
 
 ## 3B. AI Agents
@@ -124,8 +167,8 @@ Dr. Mira is one persona backed by a **team of specialist AI agents** (§3A.2). E
 
 | Agent | Job | Phase |
 |---|---|---|
-| **Receptionist Agent** | First contact: greets, verifies identity, opens/resumes the case, collects chief complaint and basic vitals-style info, routes to the Doctor Agent. Handles "front desk" queries (status of my prescription, where are my records). | **MVP** |
-| **Doctor Agent (primary physician)** | The clinical core — detailed in §3B.2. | **MVP** |
+| **Receptionist Agent** | First contact: greets, verifies identity, opens/resumes the case, collects chief complaint and basic vitals-style info, routes to the Doctor Agent. Handles "front desk" queries (status of my prescription, where are my records). | **MVP-1** |
+| **Doctor Agent (primary physician)** | The clinical core — detailed in §3B.2. | **MVP-0** |
 | **Specialist Agents** (Cardiologist, Dermatologist, Gynecologist, Gastroenterologist, Pediatrician, …) | Domain consultants the Doctor Agent confers with when the case enters their specialty — each with specialty-specific prompting, red-flag lists, and guideline knowledge. Output: a specialist opinion merged into the Doctor Agent's assessment. | Phase 2+ |
 | **Lab Technician Agent** | Evaluates uploaded lab reports (blood panels etc.): extracts values, flags out-of-range results, trends them against the patient's history. | Phase 2 |
 | **Radiology / X-ray Specialist Agent** | Evaluates X-rays and other imaging the patient or hospital uploads; produces findings for the Doctor Agent (never directly to the patient). | Phase 2+ |
@@ -152,7 +195,7 @@ The Doctor Agent is Mira's clinical brain and carries both of her modes (A-9):
 - After approval, triggers patient notification and case closure (Communication Manager's job once it exists; Doctor Agent handles it in MVP).
 - Receives and records the doctor's feedback (`mira_feedback`) for operator review.
 
-**In MVP the Receptionist and Doctor agents may be a single LLM with two prompt stages** — the orchestration layer (Edge Function) must expose them as distinct logical agents from day one so splitting them into separate models/prompts later is a config change, not a refactor.
+**In MVP-0 the Doctor Agent runs alone** (covering the Receptionist's greeting/resume duties inside its intake stage); the Receptionist splits out in MVP-1. Either way, the orchestration layer (Edge Function) must expose them as distinct logical agents from day one so splitting them into separate models/prompts later is a config change, not a refactor.
 
 ### 3B.3 Orchestration principles
 
@@ -217,9 +260,9 @@ The Doctor Agent is Mira's clinical brain and carries both of her modes (A-9):
 - **D-4** Approve / edit-and-approve / reject with reason. Every action is audited (who, when, what changed vs the AI draft).
 - **D-5** Approved prescriptions are immutable; corrections create a superseding version.
 - **D-6** PWA: installable on desktop and tablet.
-- **D-7** **Voice case presentation**: on opening a consult, Dr. Mira presents the case aloud in clinical hand-off style (SBAR-like: patient, situation, assessment, recommendation) via the same `<MiraPresence>` component the patient app uses. Skippable/muteable per doctor preference (persisted).
-- **D-8** **Ask-Mira Q&A**: the doctor can ask Mira free-form questions (voice or text) about the patient — history, prior consults and prescriptions, allergies, and (phase 2) lab results — answered from the patient's full record within the hospital's RLS boundary. Every Mira answer cites the underlying record on screen so the doctor can verify at a glance.
-- **D-9** **Conversational edits**: the doctor can dictate changes to the draft ("5 days instead of 3", "swap to azithromycin"); Mira applies them to the on-screen draft. Signing/approval is always an explicit authenticated UI action — never executable by voice.
+- **D-7** *(MVP-1)* **Voice case presentation**: on opening a consult, Dr. Mira presents the case aloud in clinical hand-off style (SBAR-like: patient, situation, assessment, recommendation) via the same `<MiraPresence>` component the patient app uses. Skippable/muteable per doctor preference (persisted).
+- **D-8** *(MVP-1)* **Ask-Mira Q&A**: the doctor can ask Mira free-form questions (voice or text) about the patient — history, prior consults and prescriptions, allergies, and (phase 2) lab results — answered from the patient's full record within the hospital's RLS boundary. Every Mira answer cites the underlying record on screen so the doctor can verify at a glance.
+- **D-9** *(MVP-1)* **Conversational edits**: the doctor can dictate changes to the draft ("5 days instead of 3", "swap to azithromycin"); Mira applies them to the on-screen draft. Signing/approval is always an explicit authenticated UI action — never executable by voice.
 
 ### 5.3 AI Service
 - **A-1** All AI calls go through a **Supabase Edge Function** — the Anthropic API key never ships to the browser (replacing the prototype's localStorage-key approach).
@@ -230,11 +273,14 @@ The Doctor Agent is Mira's clinical brain and carries both of her modes (A-9):
 - **A-6** **Voice pipeline** (the heart of the product): streaming speech-to-text for the patient's audio → LLM turn → streaming neural text-to-speech for Dr. Mira's reply. Both STT and TTS run through server-side proxies (keys never in the browser). The reply is spoken as it streams — TTS starts on the first sentence of the LLM output rather than waiting for the full response — to hit the < 1.5 s conversational-latency target.
 - **A-7** One consistent Dr. Mira **voice persona** per deployment (selectable per hospital later): warm, unhurried, natural prosody. The persona is a product asset — voice choice, speaking rate, and phrasing style are specified and tested, not defaults.
 - **A-8** The voice architecture must be **avatar-ready by design**, because the avatar is the roadmap's destination (§6.5): the TTS interface must expose word/phoneme timestamps and (where the provider supports it) visemes, and the UI must treat "Dr. Mira's presence" as a swappable component — orb today, animated face later — driven by the same listening/thinking/speaking state machine and audio timeline.
-- **A-9** **Two personas, one Mira, full context**: Mira runs in *patient mode* (empathetic clinician conducting intake) and *coordinator mode* (concise clinical presenter and assistant answering a peer doctor). Both modes share the same patient context — profile, consult transcript, prior visits and prescriptions — assembled server-side per consult. Coordinator-mode answers must be grounded in the stored record (with on-screen citations, D-8), not free recall. Per §3A.2 and the agent roster in §3B, Mira is **multiple agents behind one persona** (Receptionist + Doctor Agent in MVP; specialists, lab, pharmacy, communication, supervisor later); the Edge Function layer is the orchestrator, and nothing about the multi-agent internals may ever leak into the user-facing voice or identity.
+- **A-9** **Two personas, one Mira, full context**: Mira runs in *patient mode* (empathetic clinician conducting intake) and *coordinator mode* (concise clinical presenter and assistant answering a peer doctor). Both modes share the same patient context — profile, consult transcript, prior visits and prescriptions — assembled server-side per consult. Coordinator-mode answers must be grounded in the stored record (with on-screen citations, D-8), not free recall. Per §3A.2 and the agent roster in §3B, Mira is **multiple agents behind one persona** (Doctor Agent alone in MVP-0; Receptionist split in MVP-1; specialists, lab, pharmacy, communication, supervisor later); the Edge Function layer is the orchestrator, and nothing about the multi-agent internals may ever leak into the user-facing voice or identity.
 - **A-10** **Concurrency**: many patients and many doctors converse with "their" Mira simultaneously. Each conversation is an independent stateless-server session (context rebuilt from the database per turn), so scaling is horizontal by design; per-hospital quotas (A-5) bound aggregate spend.
 
 ### 5.4 Multi-Tenancy
-- **T-1** Tenant resolved from subdomain (`citycare.patient.⟨domain⟩` → hospital slug `citycare`).
+
+*(Design — schema, RLS, theming tokens — is MVP-0; delivery — subdomain resolution, per-tenant manifests, onboarding — is MVP-1. MVP-0 seeds the single pilot hospital directly.)*
+
+- **T-1** *(MVP-1)* Tenant resolved from subdomain (`citycare.patient.⟨domain⟩` → hospital slug `citycare`).
 - **T-2** Every domain table carries `hospital_id`; Postgres **Row Level Security** enforces that patients see only their own rows and doctors see only their hospital's rows. Isolation is enforced in the database, not in application code.
 - **T-3** Per-hospital theming via CSS variables (accent color, logo, display name) loaded from the hospital record; PWA manifest generated per tenant.
 - **T-4** Patients belong to one hospital per account context (a patient of two hospitals has two memberships; data never crosses).
@@ -247,7 +293,7 @@ The Doctor Agent is Mira's clinical brain and carries both of her modes (A-9):
 
 ### 6.1 Frontend: one codebase, two apps
 
-Monorepo (npm workspaces + Turborepo optional) with **Vite + React 19 + TypeScript**:
+Monorepo (npm workspaces + Turborepo optional) with **Vite + React 19 + TypeScript**. The layout below is **illustrative, not prescriptive** — package boundaries (two apps, shared voice/ui/api packages) are the requirement; exact names and nesting are the implementer's call:
 
 ```
 virtual-doctor/
@@ -284,7 +330,7 @@ virtual-doctor/
 - **Edge Functions** (Deno) for the AI proxy and any privileged operations.
 - **Voice services**: cloud STT and neural TTS accessed via server-side token minting (short-lived scoped tokens issued by an Edge Function; audio streams directly between browser and voice provider over WebSocket to keep latency low). Provider choice is an open question (§9) — candidates: Deepgram/AssemblyAI for streaming STT; ElevenLabs/Azure Neural/Google Chirp for empathetic TTS. Browser Web Speech API is the free-tier fallback only, not the primary experience.
 - **Realtime** for the doctor review queue.
-- **Storage** for patient-shared consult images (MVP-candidate, see §9 Q7) and lab-report uploads (phase 2), bucket-scoped per hospital with RLS-backed access policies.
+- **Storage** for patient-shared consult images (MVP-1, per §9.1) and lab-report uploads (phase 2), bucket-scoped per hospital with RLS-backed access policies.
 
 ### 6.4 Database schema (core tables)
 
@@ -296,7 +342,8 @@ patient_details  profile_id PK, dob, sex, blood_group, allergies jsonb, conditio
                  medications jsonb, updated_at
 consults         id, hospital_id, patient_id, status
                  ('active'|'pending_review'|'approved'|'rejected'|'escalated'
-                  |'communicated'|'closed'|'superseded'),   -- lifecycle per §3A.4
+                  |'communicated'|'closed'|'superseded'
+                  |'abandoned'|'expired'),   -- lifecycle per §3A.4 + edge cases §3A.5
                  chief_complaint, urgency, ai_confidence, ai_flags jsonb,
                  created_at, submitted_at
 consult_messages id, consult_id, sender ('patient'|'ai'), content, ai_note, created_at
@@ -335,7 +382,7 @@ The end-state experience is a **video call with Dr. Mira** — a virtual doctor 
 - AI safety: allergy/interaction hard rules in the server-side prompt; the doctor is the mandatory human-in-the-loop for every prescription; urgent-flag consults surface an immediate "seek emergency care" message independent of doctor review latency.
 - Auditability: every doctor action recorded with the diff between AI draft and approved prescription.
 - Prominent disclosure to patients that Dr. Mira is an AI — spoken by Dr. Mira herself at the start of each consult and shown as a persistent badge — and that a human doctor approves all recommendations.
-- Voice privacy: microphone access requested with clear explanation; audio streamed for transcription only (raw audio not retained in MVP unless decided otherwise in §9); transcripts stored under the same RLS isolation as all other consult data.
+- Voice privacy: microphone access requested with clear explanation; audio streamed for transcription only (raw audio not retained — decided, §9.1); transcripts stored under the same RLS isolation as all other consult data.
 
 ## 8. Success Metrics
 - Median intake-to-approved-prescription time < 30 minutes during clinic hours.
@@ -346,15 +393,31 @@ The end-state experience is a **video call with Dr. Mira** — a virtual doctor 
 - Lighthouse PWA + Performance ≥ 90 on both apps.
 - New-hospital onboarding < 1 hour of operator effort.
 
-## 9. Open Questions (please answer during review)
-1. **Domain names** — what real domains/subdomain scheme do you want (e.g. `citycare.vd.app` vs `patient-citycare.vd.app`)? Affects manifest + cookie scoping.
-2. **Voice provider & budget** — natural, empathetic TTS is a paid service (ElevenLabs ≈ premium quality/cost; Azure Neural / Google Chirp cheaper and still very good; OpenAI TTS mid-range). Streaming STT similarly (Deepgram, AssemblyAI). What monthly voice budget should the MVP assume, and do you have a provider preference? This also sets the per-consult unit cost (~₹3–15 per 5-min consult depending on provider).
-2a. **Audio retention** — store the patient's raw audio recordings (better audit/QA, heavier privacy burden) or transcripts only? (Recommendation: transcripts only for MVP.)
-3. **Languages** — English only for MVP, or Kannada/Telugu/Hindi from day one? (Your other projects suggest multi-language matters; recommendation: architect for i18n, ship English first.)
-4. **Notifications** — is web push (patient notified on approval) MVP, or is in-app status enough?
-5. **Doctor assignment** — MVP assumes a shared hospital-wide review queue (any doctor takes any consult). Do consults ever need routing to a specific doctor/specialty in MVP?
-6. **Desk voice sequencing** — Mira's spoken case presentation and Q&A on the Doctor Desk are core to the vision. Ship them in the very first release, or release the desk visual-first and add coordinator-mode voice one increment later (patient voice pipeline lands first either way)? (Recommendation: one increment later — it reuses the proven patient voice stack.)
-7. **Image sharing in MVP** — should patients be able to share photos (rash, wound, swelling) for Mira to analyze in the MVP? Claude's vision makes the analysis itself straightforward; the cost is upload UX + storage policies. (Recommendation: yes for photos; video later.) Related later-phase items flagged in §3A: Mira's live research lookup, Mira's outbound virtual call to close a case, and doctor-joined video conferences via the Patient App.
+## 8A. Risks & Mitigations
+
+| # | Risk | Likelihood / Impact | Mitigation |
+|---|---|---|---|
+| **R-1** | **Doctor liability concerns stall adoption** — doctors decline to sign AI-drafted prescriptions, or hospital leadership blocks the pilot. | Med / **Fatal** | Design-partner gate before desk build (RA-1, §2A); immutable audit trail with draft-vs-approved diff (D-4/D-5); doctor can always reject to in-person; feedback channel (`mira_feedback`) gives doctors control over Mira's behavior. |
+| **R-2** | **Voice latency target (< 1.5 s) unachievable on real Indian 4G** — the conversation feels laggy, undermining the core interaction. | Med / High | Streaming end-to-end (A-6) with TTS starting on first sentence; text channel always available (P-3a) with graceful degradation on poor networks as an explicit requirement; measure p50/p95 from the pilot's real devices, not lab conditions. |
+| **R-3** | **Unit economics don't close** — voice (STT+TTS) + LLM cost per consult (~₹3–15 voice alone) exceeds what a small hospital will pay per consult. | Med / High | Per-consult cost tracked from day one (A-5 covers LLM+STT+TTS spend); per-hospital quotas; provider choice (Q2) made on cost *and* quality; cheaper TTS tier acceptable for MVP if empathy holds up in testing. |
+| **R-4** | **iOS Safari PWA limitations** — web push restrictions, mic permission quirks, and install friction degrade the patient experience on iPhones. | High / Med | In-app status is the baseline notification path (push is enhancement, Q3 §9.2); mic-denied flow fully supported via text (P-3a); publish a stated browser-support matrix with the pilot; Android-first pilot cohort acceptable for MVP-0. |
+| **R-5** | **AI quality failures** — missed red flags, hallucinated history in coordinator answers, or unsafe drafts erode doctor trust faster than it can be rebuilt. | Med / **Fatal** | Server-side hard safety rules (A-3); operator audits 100 % of MVP-0 consults (RA-3); coordinator answers must cite the stored record on screen (D-8); urgent-flag path independent of review latency (§7); Supervisor Agent in phase 2. |
+| **R-6** | **Queue goes unwatched** — no doctor reviews consults promptly, breaking the instant-care promise and stranding patients. | High / High | Staffing/incentive named in the pilot agreement (§3A.3); review SLA with patient notification, admin escalation, and 24 h expiry (§3A.5); urgent consults surface emergency guidance immediately regardless (§7). |
+| **R-7** | **Voice-provider lock-in** — the chosen STT/TTS vendor changes pricing or quality mid-pilot. | Low / Med | `packages/voice` defines a provider-agnostic interface (§6.1); server-side token minting isolates provider credentials; avatar-readiness contract (A-8) already forces a clean abstraction boundary. |
+
+## 9. Open Questions & Decisions
+
+### 9.1 Decided (previously open — defaults adopted in v0.2; veto during review if you disagree)
+- **Audio retention (was Q2a)** — **Decided: transcripts only for MVP.** Raw patient audio is streamed for transcription and not retained; lighter privacy burden, transcripts carry the audit value. Revisit if QA needs emerge.
+- **Languages (was Q3)** — **Decided: architect for i18n, ship English first.** All user-facing strings externalized and the voice pipeline provider-selected with Indic-language support in mind; Kannada/Telugu/Hindi are fast-follows, not MVP.
+- **Desk voice sequencing (was Q6)** — **Decided: MVP-1.** The Doctor Desk ships visual-first in MVP-0; coordinator-mode voice (D-7 – D-9) lands in MVP-1 reusing the proven patient voice stack. (Reflected in the §2 release ladder.)
+- **Image sharing (was Q7)** — **Decided: MVP-1 for photos; video later.** Claude vision makes analysis straightforward, but upload UX + storage policies don't belong in the smallest loop-validating build. Related later-phase items remain flagged in §3A: Mira's live research lookup, outbound virtual call, doctor-joined video conferences.
+
+### 9.2 Still open (please answer during review)
+1. **Domain names** — what real domains/subdomain scheme do you want (e.g. `citycare.vd.app` vs `patient-citycare.vd.app`)? Affects manifest + cookie scoping. (Needed by MVP-1, not MVP-0.)
+2. **Voice provider & budget** — natural, empathetic TTS is a paid service (ElevenLabs ≈ premium quality/cost; Azure Neural / Google Chirp cheaper and still very good; OpenAI TTS mid-range). Streaming STT similarly (Deepgram, AssemblyAI). What monthly voice budget should the MVP assume, and do you have a provider preference? This also sets the per-consult unit cost (~₹3–15 per 5-min consult depending on provider — see R-3 in §8A).
+3. **Notifications** — is web push (patient notified on approval) MVP, or is in-app status enough? (Note iOS Safari push constraints, R-4 in §8A.)
+4. **Doctor assignment** — MVP assumes a shared hospital-wide review queue (any doctor takes any consult). Do consults ever need routing to a specific doctor/specialty in MVP? (Interacts with the staffing/rota requirement in §3A.3.)
 
 ---
 
