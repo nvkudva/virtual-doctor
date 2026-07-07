@@ -1,6 +1,6 @@
 # Virtual Doctor — Architecture Document (Source of Truth)
 
-**Version:** 1.1 (aligned to PRD v0.2 — MVP-0/MVP-1 release ladder, RA-1 gate, lifecycle edge cases, Consult Trace)
+**Version:** 1.2 (v1.1 aligned to PRD v0.2 — MVP-0/MVP-1 ladder, RA-1 gate, lifecycle edge cases, Consult Trace; v1.2 absorbs PRD UI-1 responsive layout + UI-2 native-shell readiness)
 **Date:** 2026-07-07
 **Status:** Active — this document governs all implementation work.
 **Companion:** `docs/PRD.md` v0.2 (product requirements). Where this document and the PRD conflict on *how* to build, this document wins; on *what* to build, the PRD wins.
@@ -76,6 +76,7 @@ These are the four abstractions we build *before* we strictly need them, because
 2. **`VoiceProvider` interface** — STT/TTS providers are pluggable adapters (§6.3). Provider choice is a config value.
 3. **Agent registry** — agents are config (prompt + model + tools + policies), routed by an orchestrator (§7). Splitting the MVP's single LLM into specialist agents is config, not refactor.
 4. **i18n scaffolding** — all user-facing strings go through a message catalog from day one; English is the only shipped locale in MVP (Kannada/Telugu/Hindi later).
+5. **Platform capability layer** (`packages/platform`) — PRD UI-2 makes native app containers (Capacitor/TWA) the later-phase end-state, so browser capabilities that differ under a native shell — notifications/push subscription, install prompt, share, persistent storage, in-app back navigation — are accessed only through thin wrappers here, never called raw from components. Mic acquisition already lives behind `packages/voice`. This is wrappers, not a plugin framework: each is a small module with a web implementation today and room for a native one later.
 
 Everything else follows YAGNI. Specifically **not** abstracted in MVP: no repository pattern over Supabase, no event bus, no microservices, no GraphQL, no custom design-system framework, no monorepo tooling beyond npm workspaces until build times demand it.
 
@@ -101,6 +102,8 @@ PRD v0.2 decided several formerly open questions itself (PRD §9.1) and left the
 | DEC-12 | Hosting: static apps on **Cloudflare Pages** (two projects; default project domains in MVP-0, wildcard tenant subdomains wired in MVP-1); Supabase for everything else. | Reversal: any static host works — the apps are pure static builds. |
 | DEC-13 | Lifecycle timers (review SLA, abandonment, expiry — PRD §3A.5) run as **`pg_cron` jobs inside Postgres** calling SQL functions that write `consult_events` and flip statuses. No external scheduler, no queue infrastructure. | Timers are per-hospital config read from `hospitals.ai_config`. Reversal: swap cron jobs for a worker — the SQL functions stay. |
 | DEC-14 | **One open consult per patient per hospital** (PRD §3A.5) enforced by a **partial unique index** on `consults (patient_id, hospital_id) WHERE status IN ('active','pending_review')` — database-level, like all other invariants. | App code treats the conflict as "resume existing consult". Reversal: drop the index. |
+| DEC-15 | **Responsive strategy (PRD UI-1, MVP-0):** mobile-first CSS with **two canonical breakpoints** — `tablet ≥ 768px`, `desktop ≥ 1120px` — defined once in `packages/theme` (exported TS consts + documented media-query snippets) and used by name everywhere. Page-level reflow is owned by layout components (`AppShell`, the desk review layout): stacked single-column on phone → two/three-pane on desktop. **No user-agent/device sniffing, no separate mobile builds** — one build per app, CSS decides layout. | Two breakpoints cover phone/tablet/desktop per UI-1 without a grid-system dependency. Reversal: add a breakpoint constant. |
+| DEC-16 | **Native-shell readiness (PRD UI-2, later phase):** target wrapper is **Capacitor** (one codebase → Play Store + App Store; TWA remains an Android-only alternative). Binding MVP rules so this stays a packaging task, not a rewrite: (a) no browser-only APIs without a native equivalent in load-bearing paths; (b) platform capabilities only via `packages/platform` (seam 5) / `packages/voice` for mic; (c) UI never assumes browser chrome — every screen reachable via in-app navigation, no reliance on the URL bar or browser-back as the only way out; (d) push lands (MVP-1, DEC-5) behind the platform wrapper so web-push can later be joined by FCM/APNs. **No Capacitor dependency, config, or native project is added before its phase.** | Mirrors the avatar pattern: deferred, but the end-state. Reversal: none needed — the rules cost ~zero if the wrap never happens. |
 
 ---
 
@@ -151,6 +154,8 @@ virtual-doctor/
 │   ├── voice/                    # voice engine: mic capture, VoiceProvider adapters,
 │   │                             #   turn-taking state machine, audio playback + timestamps
 │   ├── core/                     # domain types, Zod schemas, consult state machine, i18n catalog
+│   ├── platform/                 # thin wrappers over browser/native capabilities (§1.3 seam 5):
+│   │                             #   notifications/push, install prompt, share, persistent storage, back-nav
 │   └── config/                   # shared tsconfig/eslint/prettier/vite base
 ├── supabase/
 │   ├── migrations/               # numbered SQL migrations incl. RLS policies
@@ -170,6 +175,7 @@ virtual-doctor/
 - `packages/ui` may import `theme` and `core` only — never `api` or `voice` (components receive data and callbacks via props).
 - `packages/voice` may import `core` only.
 - `packages/api` may import `core` only.
+- `packages/platform` may import `core` only. `ui` components never import it — capability calls happen in app/feature code, results flow into `ui` as props (DEC-16).
 - `packages/core` imports nothing internal (leaf).
 - Edge Functions import Zod contracts from `packages/core` (via the `_shared` bridge); they never import UI/voice/api packages.
 
@@ -444,6 +450,7 @@ The trace is a **read model, not new write paths**: every step of a consult alre
 3. **Tokens only**: no literal colors, font sizes, spacing, radii, or shadows in any component — CSS variables from `packages/theme` exclusively (`--vd-accent`, `--vd-surface`, `--vd-text`, `--vd-radius-*`, `--vd-space-*`, `--vd-font-*`). This is what makes hospital branding and dark mode zero-component-change.
 4. **Accessibility floor**: every interactive component keyboard-operable, labeled, WCAG AA contrast in both themes; the consult screen fully usable with screen reader + text mode (the voice product must not be voice-*only*).
 5. Each component ships with: types, a minimal usage doc-comment, and a Testing Library test for its states. No Storybook in MVP (revisit when a designer joins).
+6. **Responsive by design (PRD UI-1, MVP-0)**: styles are written mobile-first; the only allowed breakpoints are the named `tablet`/`desktop` constants from `packages/theme` (DEC-15) — no ad-hoc pixel values in media queries. Page-level reflow belongs to layout components (`AppShell` and per-app layout shells), not to leaf components; a leaf component that must adapt to its own width uses a container query, not a viewport query. Touch targets ≥ 44px at every breakpoint. The Doctor Desk's queue + review screen is the canonical case: stacked single-column on phone, queue-beside-review on tablet, three-pane (queue / transcript+draft / `PatientHistoryPanel`) on desktop — designed per breakpoint, not scaled.
 
 ### 10.2 Canonical inventory (check here before creating anything)
 
@@ -459,7 +466,7 @@ The trace is a **read model, not new write paths**: every step of a consult alre
 | `PatientHistoryPanel` | profile + prior consults side panel | desk |
 | `EmergencyInterstitial` | red-flag full-screen guidance | patient |
 | `AiDisclosureBadge` | persistent "AI doctor — reviewed by a human physician" | patient, always visible in consult |
-| Primitives | `Button`, `Card`, `Sheet/Drawer`, `Dialog`, `TextField`, `Select`, `Toast`, `Skeleton`, `EmptyState`, `AppShell` (header/nav/safe-areas) | build once, first phase that needs them |
+| Primitives | `Button`, `Card`, `Sheet/Drawer`, `Dialog`, `TextField`, `Select`, `Toast`, `Skeleton`, `EmptyState`, `AppShell` (header/nav/safe-areas; owns page-level breakpoint reflow per §10.1 rule 6) | build once, first phase that needs them |
 
 The prototype (`js/orb.js`, `index.html` keyframes) is the **visual reference** for the orb states and motion language — port, don't redesign.
 
@@ -509,7 +516,7 @@ Phases map onto the PRD's release ladder (PRD §2): **Phases 0–4 = MVP-0** (va
 ### — MVP-0 (single pilot hospital, tenant seeded directly; multi-tenant *schema* from day one) —
 
 ### Phase 0 — Foundation (goal: an empty but real product skeleton)
-**Deliverables:** monorepo per §4; `packages/config` toolchain; `packages/theme` tokens (light/dark); `packages/core` with consult state machine, contracts (§7.3) and i18n scaffold (tenant *parsing* code exists in `core` but subdomain wiring waits for Phase 6); CI (typecheck/lint/test/build/size-limit); both apps deploy to Cloudflare Pages (default project domains) showing a themed shell branded from seeded hospital config.
+**Deliverables:** monorepo per §4; `packages/config` toolchain; `packages/theme` tokens (light/dark) incl. the named `tablet`/`desktop` breakpoint constants (DEC-15); `packages/platform` skeleton (§1.3 seam 5 — web implementations only); `packages/core` with consult state machine, contracts (§7.3) and i18n scaffold (tenant *parsing* code exists in `core` but subdomain wiring waits for Phase 6); CI (typecheck/lint/test/build/size-limit); both apps deploy to Cloudflare Pages (default project domains) showing a themed shell branded from seeded hospital config.
 **Accept:** `npm i && npm run build` green; both apps live and branded from seed data; CI enforces budgets.
 **Do not build yet:** any Supabase table beyond `hospitals`, any AI call, any voice code, subdomain plumbing.
 
@@ -520,7 +527,7 @@ Phases map onto the PRD's release ladder (PRD §2): **Phases 0–4 = MVP-0** (va
 
 ### Phase 2 — Text consult, end to end (goal: the full loop works before voice exists)
 **Deliverables:** `ai-consult` Edge Function with orchestrator, agent registry (**Doctor Agent alone**, §7.2), context assembly, safety layers 1–3, quotas; patient consult UI (text mode: `TranscriptView`, `ComposerBar`, `RecommendationCard`, `EmergencyInterstitial`, `AiDisclosureBadge`); consult lifecycle to `pending_review`; lifecycle timers via `pg_cron` (§5.6: SLA warn/escalate, 24 h expiry, 30 min abandonment) with rejection/expiry patient messaging; **[gated by G-1]** desk queue (Realtime) + review screen + approve/edit/reject RPCs + audit `reviews`; patient records list + `PrescriptionView`; operator trace access (the `consult_trace` view + `docs/ops.md` queries + `export_consult_trace` RPC).
-**Accept:** scripted E2E: patient completes a text consult → doctor edits + approves → patient sees the signed prescription — **and the consult's trace timeline contains every step of that journey** (turns, draft, queued, doctor_opened, decision + diff, notification, closure); allergy hard-rule blocks a conflicting draft in post-validation; red-flag input produces urgent flag + interstitial; starting a second consult resumes the open one; timers fire in a clock-mocked test; all actions audited.
+**Accept:** scripted E2E: patient completes a text consult → doctor edits + approves → patient sees the signed prescription — **and the consult's trace timeline contains every step of that journey** (turns, draft, queued, doctor_opened, decision + diff, notification, closure); allergy hard-rule blocks a conflicting draft in post-validation; red-flag input produces urgent flag + interstitial; starting a second consult resumes the open one; timers fire in a clock-mocked test; all actions audited; the desk queue + review screen reflows per §10.1 rule 6 (single-column at phone width, multi-pane at desktop width — verified at both viewports in the E2E).
 **Do not build yet:** any STT/TTS, desk voice, images, push, Receptionist agent.
 
 ### Phase 3 — Patient voice (goal: the product's core experience at target latency)
@@ -529,7 +536,7 @@ Phases map onto the PRD's release ladder (PRD §2): **Phases 0–4 = MVP-0** (va
 **Do not build yet:** desk voice, avatar work of any kind.
 
 ### Phase 4 — MVP-0 hardening & pilot launch (goal: live with the design-partner hospital)
-**Deliverables:** quotas + `usage_events` + operator dashboard queries (PRD §8 and RA-2/RA-3 gate metrics measurable); Sentry + Web Vitals; security pass (headers/CSP, dependency audit, RLS re-review); accessibility pass; PWA install polish + offline records; load sanity test (50 concurrent consults); pilot runbook (rota/SLA config for the hospital, incident + breach-notification runbooks).
+**Deliverables:** quotas + `usage_events` + operator dashboard queries (PRD §8 and RA-2/RA-3 gate metrics measurable); Sentry + Web Vitals; security pass (headers/CSP, dependency audit, RLS re-review); accessibility pass; responsive pass — both apps exercised at phone/tablet/desktop widths against §10.1 rule 6 (UI-1); a DEC-16 readiness check (no raw capability APIs outside `packages/platform`/`voice`, no browser-chrome-dependent flows); PWA install polish + offline records; load sanity test (50 concurrent consults); pilot runbook (rota/SLA config for the hospital, incident + breach-notification runbooks).
 **Accept:** Lighthouse ≥ 90 both apps; RA-2 (completion/voice rates) and RA-3 (approval-with-minor-edits, median review time) computable from the dashboard on day one of the pilot; operator can audit any consult end-to-end from its trace.
 **Do not build yet:** anything in MVP-1 below.
 
@@ -545,7 +552,7 @@ Phases map onto the PRD's release ladder (PRD §2): **Phases 0–4 = MVP-0** (va
 **Accept:** a brand-new tenant is live on its own subdomains with zero code changes; photo consult E2E passes; push received on approval; agent split verified as config-only (no orchestrator refactor in the diff).
 
 ### Post-MVP phase ladder (direction, not commitment)
-P7 Pharmacy + Lab agents, admin UI · P8 Specialist agents + Supervisor + feedback loop · P9 i18n locales (Kannada/Telugu/Hindi voice+text) · P10 Communication Manager, outbound Mira call, doctor-patient video · P11 `AvatarPresence`.
+P7 Pharmacy + Lab agents, admin UI · P8 Specialist agents + Supervisor + feedback loop · P9 i18n locales (Kannada/Telugu/Hindi voice+text) · P10 Communication Manager, outbound Mira call, doctor-patient video · P11 `AvatarPresence` · P12 native app containers for both apps (Capacitor per DEC-16, app-store distribution — PRD UI-2; native push/storage/mic implementations slot in behind `packages/platform` and `packages/voice`).
 
 ---
 
@@ -575,6 +582,7 @@ Baseline (DEC-10): **India-first**. HIPAA/ABDM are design considerations — the
 ### 14.2 React
 - Function components + hooks only. Server state in TanStack Query (keys defined centrally in `packages/api` — never inline strings); UI state local; no global state library.
 - Data fetching in `packages/api` hooks; components stay presentational (§10.1). Lazy-load routes. No `useEffect` for derivable state.
+- Layout comes from CSS (named breakpoints/container queries per §10.1 rule 6) — never from user-agent or screen-size sniffing in JS. Browser/native capabilities only via `packages/platform` (and `packages/voice` for mic); no raw `Notification`/`navigator.share`/storage-API calls in app or component code (DEC-16).
 
 ### 14.3 SQL / Supabase
 - Schema changes only via migrations; every table RLS-enabled default-deny in the same migration that creates it; every privileged write is an RPC with an explicit grant, not a broad policy.
