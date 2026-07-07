@@ -1,6 +1,6 @@
 # Virtual Doctor — Product Requirements Document
 
-**Version:** 0.4 (v0.2 revised after PM review — MVP re-scoped into MVP-0/MVP-1, riskiest assumptions, lifecycle edge cases, and risks added; all open questions in §9.2 resolved — domain scheme, voice provider, notifications, doctor assignment; v0.3 renamed the "Doctor Desk" app to **Doctor App** throughout, matching "Patient App" — naming only, no scope change; v0.4 merges both lines of work)
+**Version:** 0.5 (v0.2 revised after PM review — MVP re-scoped into MVP-0/MVP-1, riskiest assumptions, lifecycle edge cases, and risks added; all open questions in §9.2 resolved — domain scheme, voice provider, notifications, doctor assignment; v0.3 renamed the "Doctor Desk" app to **Doctor App** throughout, matching "Patient App" — naming only, no scope change; v0.4 merges both lines of work; v0.5 reframes the product from **two separate PWAs** to **one PWA with per-module entry points** — the Patient App and Doctor App are the patient and doctor *modules* of a single PWA (future: pharmacy, …), each reached at its own URL path (`/patient`, `/doctor`) and sharing a configurable app shell + component library while keeping full per-module UI customization; §6.1 rewritten to one Vite build / one deploy with route-level module code-splitting for download isolation — see ARCHITECTURE DEC-19. Product scope unchanged; only the "two apps" framing is corrected)
 **Date:** 2026-07-07
 **Status:** Awaiting review — the implementation Action Plan will be written after this PRD is approved.
 
@@ -12,10 +12,10 @@ Outpatient care at small and mid-size hospitals is bottlenecked by the first 10 
 
 Hospitals want a digital front door, but existing telemedicine platforms are either single-hospital custom builds (expensive, unmaintainable) or generic marketplaces that put the platform's brand — not the hospital's — in front of the patient.
 
-**Virtual Doctor** solves this with two PWAs served from one codebase:
+**Virtual Doctor** is **one PWA with two per-module entry points** (a patient module and a doctor module, each reached at its own URL path — future modules such as pharmacy plug in the same way). The two experiences below are modules of that single app sharing a configurable app shell and component library, not separate apps:
 
-- **Patient App** — a hospital-branded PWA where a patient signs in and **speaks with *Dr. Mira***, an empathetic AI physician, the way they would speak to a doctor on a phone call. Dr. Mira is the **primary doctor** in the experience: she greets the patient aloud, listens, asks questions one at a time in a natural, caring voice, and concludes with a recommended plan (prescription or investigations) — everything a real doctor would do on a first call. Voice is the primary medium; text chat is a secondary aid (typing a medicine name, answering when speaking isn't possible). The app clearly discloses that Dr. Mira is an AI, and the patient can view all past visits and prescriptions.
-- **Doctor App** — a PWA for the hospital's doctors, showing a review queue of AI-drafted consults. Here Dr. Mira plays her second role: **case coordinator**. She *presents* each case to the real doctor the way a junior doctor presents to a senior — speaking naturally through the same voice (later video-avatar) interface: the patient's story, her working diagnosis, her reasoning, and her recommendation. The doctor can interrupt and ask her anything about the patient — history, prior consults, labs, allergies — and she answers from full patient context. Because the case arrives pre-worked and well-presented, the doctor approves (or edits/rejects) in minimal time, and the patient instantly receives a doctor-signed prescription. Traditional visual review (transcript, structured draft, forms) remains fully available; the conversation is an accelerator, not a replacement.
+- **Patient App** (patient module) — a hospital-branded experience where a patient signs in and **speaks with *Dr. Mira***, an empathetic AI physician, the way they would speak to a doctor on a phone call. Dr. Mira is the **primary doctor** in the experience: she greets the patient aloud, listens, asks questions one at a time in a natural, caring voice, and concludes with a recommended plan (prescription or investigations) — everything a real doctor would do on a first call. Voice is the primary medium; text chat is a secondary aid (typing a medicine name, answering when speaking isn't possible). The app clearly discloses that Dr. Mira is an AI, and the patient can view all past visits and prescriptions.
+- **Doctor App** (doctor module) — the experience for the hospital's doctors, showing a review queue of AI-drafted consults. Here Dr. Mira plays her second role: **case coordinator**. She *presents* each case to the real doctor the way a junior doctor presents to a senior — speaking naturally through the same voice (later video-avatar) interface: the patient's story, her working diagnosis, her reasoning, and her recommendation. The doctor can interrupt and ask her anything about the patient — history, prior consults, labs, allergies — and she answers from full patient context. Because the case arrives pre-worked and well-presented, the doctor approves (or edits/rejects) in minimal time, and the patient instantly receives a doctor-signed prescription. Traditional visual review (transcript, structured draft, forms) remains fully available; the conversation is an accelerator, not a replacement.
 
 The AI never prescribes on its own. Every recommendation is a **draft** until a licensed doctor approves it — the AI compresses the intake, the doctor keeps the judgment.
 
@@ -50,7 +50,7 @@ The MVP is deliberately split into two increments so the riskiest assumptions (�
 3. Records *(MVP-0)*: patients see their visit history and approved prescriptions; doctors see the patient's history at review time.
 4. Multi-hospital *(design MVP-0, delivery MVP-1)*: onboarding a new hospital requires configuration only (a row in the database + a subdomain), zero code changes.
 5. Both apps installable as PWAs with fast first load (< 2.5 s LCP on a mid-range Android phone over 4G) *(MVP-0)*.
-6. **Responsive across mobile, tablet, and desktop** *(MVP-0)*: both apps are used on phones (patients, and doctors reviewing on the go), tablets, and desktop browsers (doctors at a workstation) — layouts must adapt to each, not just tolerate them. See UI-1 in §5.0.
+6. **Responsive across mobile, tablet, and desktop** *(MVP-0)*: both modules are used on phones (patients, and doctors reviewing on the go), tablets, and desktop browsers (doctors at a workstation) — layouts must adapt to each, not just tolerate them. See UI-1 in §5.0.
 
 ### Non-Goals (explicitly out of MVP scope)
 - Appointment booking / scheduling
@@ -111,7 +111,7 @@ Dr. Mira is a **super expert**: to the user she is one person, but behind the po
 1. **Greets** the customer and speaks with empathy, seeking to understand what they are going through and their symptoms.
 2. **Asks all the questions a regular doctor would ask** — one at a time, naturally, adapting to the patient's answers.
 3. **Runs background checks on the patient's medical history** in the system and correlates with the current complaint where relevant.
-4. **Analyzes images or video** the patient shares (e.g. a photo of a rash, a swollen joint) as part of the examination. *(Image analysis: MVP-candidate via Claude vision; video analysis: later phase.)*
+4. **Analyzes images or video** the patient shares (e.g. a photo of a rash, a swollen joint) as part of the examination. *(Image analysis: MVP-candidate via Gemini vision; video analysis: later phase.)*
 5. Once she has gathered enough data, she **evaluates and forms a diagnosis** — drawing on medical expertise and, if needed, the latest research *(research lookup: later phase, flagged in §9)* — and produces a **probable conclusion and recommendations** (advice / lab tests / prescription).
 6. The recommendation is **recorded into the system** and sent to the **real doctor's queue** for approval, rejection, or modification.
 7. She does this **concurrently for all patients of the hospital** (see A-10).
@@ -185,7 +185,7 @@ The Doctor Agent is Mira's clinical brain and carries both of her modes (A-9):
 **Patient mode (intake & diagnosis):**
 - Conducts the consultation with empathy-first, one-question-at-a-time conversation (voice-primary), exactly per UC-1.
 - **Context in**: full patient record — profile, allergies, chronic conditions, medications, prior consults and prescriptions — assembled server-side before the first word; references history naturally and correlates it with the current complaint (§3A.1 expectations).
-- **Examines media**: analyzes patient-shared photos (rash, wound, swelling) via Claude vision (video: later), feeding findings into the assessment.
+- **Examines media**: analyzes patient-shared photos (rash, wound, swelling) via Gemini vision (video: later), feeding findings into the assessment.
 - **Safety hard rules**: allergy classes never prescribed, age/pregnancy constraints, red-flag symptom → urgent escalation with spoken emergency guidance. These are server-injected and non-negotiable (A-3).
 - **Output**: probable diagnosis + structured recommendation (advice / lab tests / prescription items with dosage, timing, plain-language "why"), confidence level, and safety flags for the reviewing doctor → recorded and queued (`pending_review`).
 
@@ -242,7 +242,7 @@ The Doctor Agent is Mira's clinical brain and carries both of her modes (A-9):
 
 ## 5. Functional Requirements
 
-### 5.0 Cross-cutting: Responsive UI & native-shell readiness (both apps)
+### 5.0 Cross-cutting: Responsive UI & native-shell readiness (both modules)
 - **UI-1** *(MVP-0)* **Adaptive layout, not just "doesn't break."** Both the Patient App and Doctor App are used across phones, tablets, and desktop browsers — a patient may consult from a phone, a doctor may review from a tablet on rounds or a desktop at a workstation. Layouts must be designed mobile-first and reflow deliberately at tablet/desktop breakpoints (e.g. the Doctor App's queue + review screen goes from stacked single-column on phone to a two/three-pane layout on desktop), not simply scale a phone or desktop layout up/down. Touch targets, the voice orb, and the review screen's side panels are all specified per breakpoint, not assumed.
 - **UI-2** *(later phase, not MVP)* **Native app container.** The long-term plan is to wrap both PWAs in native containers (e.g. Capacitor/Trusted Web Activity) for app-store distribution, mirroring the video-avatar pattern (§2 Non-Goals): deferred, but the end-state, not a maybe. Every MVP-0/MVP-1 frontend decision should assume this eventually happens: avoid browser-only APIs with no native equivalent, keep platform-specific code (notifications, storage, mic access) behind an abstraction rather than scattered through components, and don't build UI that assumes a browser chrome (URL bar, browser-back) is always present. This costs little now and avoids a rewrite later.
 - **P-1** Google sign-in (Supabase Auth OAuth). Session persists across PWA launches.
@@ -268,8 +268,8 @@ The Doctor Agent is Mira's clinical brain and carries both of her modes (A-9):
 - **D-9** *(MVP-1)* **Conversational edits**: the doctor can dictate changes to the draft ("5 days instead of 3", "swap to azithromycin"); Mira applies them to the on-screen draft. Signing/approval is always an explicit authenticated UI action — never executable by voice.
 
 ### 5.3 AI Service
-- **A-1** All AI calls go through a **Supabase Edge Function** — the Anthropic API key never ships to the browser (replacing the prototype's localStorage-key approach).
-- **A-2** Model: `claude-fable-5` (primary) with per-hospital model override; structured JSON output contract carried over from the prototype (reply, note, confidence, flags, done, recommendation).
+- **A-1** All AI calls go through a **Supabase Edge Function** — the AI provider (Google Gemini) API key never ships to the browser (replacing the prototype's localStorage-key approach).
+- **A-2** Model: `gemini-2.5-flash` (primary — Google Gemini, chosen over Claude on cost) with per-hospital model override; structured JSON output contract carried over from the prototype (reply, note, confidence, flags, done, recommendation).
 - **A-3** Hard safety rules injected server-side: patient allergies, age-based constraints, emergency escalation rules. The client cannot alter the system prompt.
 - **A-4** Full conversation + raw AI outputs are stored for doctor review and audit.
 - **A-5** Cost guardrails: max turns per consult, max tokens per call, per-hospital daily consult quota — covering LLM, STT, and TTS spend.
@@ -294,7 +294,7 @@ Every consult must be reconstructable, end to end, in one place — a **Consult 
 
 *(Design — schema, RLS, theming tokens — is MVP-0; delivery — subdomain resolution, per-tenant manifests, onboarding — is MVP-1. MVP-0 seeds the single pilot hospital directly.)*
 
-- **T-1** *(MVP-1)* Tenant resolved from subdomain, app from path (`citycare.vd.app/patient` → hospital slug `citycare`, Patient App; `citycare.vd.app/doctor` → Doctor App). The path scheme leaves room for future sub-apps (e.g. `/pharmacy`).
+- **T-1** *(MVP-1)* Tenant resolved from subdomain, module from path (`citycare.vd.app/patient` → hospital slug `citycare`, patient module; `citycare.vd.app/doctor` → doctor module). The path scheme leaves room for future modules (e.g. `/pharmacy`).
 - **T-2** Every domain table carries `hospital_id`; Postgres **Row Level Security** enforces that patients see only their own rows and doctors see only their hospital's rows. Isolation is enforced in the database, not in application code.
 - **T-3** Per-hospital theming via CSS variables (accent color, logo, display name) loaded from the hospital record; PWA manifest generated per tenant.
 - **T-4** Patients belong to one hospital per account context (a patient of two hospitals has two memberships; data never crosses).
@@ -305,15 +305,20 @@ Every consult must be reconstructable, end to end, in one place — a **Consult 
 
 *(High level only — the detailed phased Action Plan follows PRD approval.)*
 
-### 6.1 Frontend: one codebase, two apps
+### 6.1 Frontend: one PWA, per-module entry points
 
-Monorepo (npm workspaces + Turborepo optional) with **Vite + React 19 + TypeScript**. The layout below is **illustrative, not prescriptive** — package boundaries (two apps, shared voice/ui/api packages) are the requirement; exact names and nesting are the implementer's call:
+Monorepo (npm workspaces + Turborepo optional) with **Vite + React 19 + TypeScript**. The layout below is **illustrative, not prescriptive** — package boundaries (one web app with per-module routes, shared voice/ui/api packages) are the requirement; exact names and nesting are the implementer's call:
 
 ```
 virtual-doctor/
 ├── apps/
-│   ├── patient/          # Vite app → patient PWA (own entry, own manifest, own service worker)
-│   └── doctor/           # Vite app → Doctor PWA
+│   └── web/              # single Vite app → the one PWA (shared shell + router)
+│       └── src/
+│           ├── shell/        # configurable header/nav/footer (per-module config)
+│           ├── router.tsx    # maps first path segment → module, lazy-loads its chunk
+│           └── modules/
+│               ├── patient/  # patient module (entry: /patient)
+│               └── doctor/   # doctor module  (entry: /doctor)   — future: pharmacy/, …
 ├── packages/
 │   ├── ui/               # shared component library (buttons, cards, MiraOrb, layout primitives)
 │   ├── theme/            # design tokens as CSS variables (light/dark + per-hospital accent)
@@ -327,14 +332,14 @@ virtual-doctor/
     └── functions/        # Edge Functions (ai-consult, voice-token, tenant-manifest)
 ```
 
-- Two independent Vite builds → two deploy targets → two URL families. Each app bundles **only** what it imports from `packages/*` (tree-shaken); the patient never downloads doctor-app code and vice versa.
-- **Both apps are voice apps.** `packages/voice` (the conversation engine) and `<MiraPresence>` in `packages/ui` are consumed by *both* the patient app (Mira in patient mode) and the Doctor app (Mira in coordinator mode) — the strongest driver of the shared-library architecture: one voice/presence stack, two personas, two apps.
-- `vite-plugin-pwa` per app for service worker, precaching, and installability.
+- **One Vite build → one deploy → one origin per hospital.** Download isolation comes from route-level module code-splitting (`manualChunks`, one chunk per module), not from separate builds: `/patient` never loads the `/doctor` chunk and vice versa. A CI import-boundary rule keeps the modules independently splittable — a module may import the shell and any `packages/*` but never another module (see ARCHITECTURE DEC-19).
+- **Both modules are voice apps.** `packages/voice` (the conversation engine) and `<MiraPresence>` in `packages/ui` are consumed by *both* the patient module (Mira in patient mode) and the doctor module (Mira in coordinator mode) — the strongest driver of the shared-library architecture: one voice/presence stack, two personas, two modules of one PWA.
+- One `vite-plugin-pwa` service worker for the PWA, with a distinct manifest `scope`/`start_url` **per module** so patient and doctor remain independently installable home-screen apps from the single deployment.
 - Styling: **CSS variables** for all design tokens (`--vd-accent`, `--vd-surface`, spacing/typography scale) defined in `packages/theme`; components in `packages/ui` consume tokens only, so hospital branding and dark mode are runtime variable swaps with zero component changes. Lightweight styling via CSS modules (no runtime CSS-in-JS — keeps bundles small and paint fast).
 - State/data: TanStack Query over the Supabase JS client; Supabase Realtime subscription for the doctor queue.
 
 ### 6.2 Performance budget
-- < 2.5 s LCP on mid-range Android / 4G; JS budget ≤ 150 KB gzipped initial per app.
+- < 2.5 s LCP on mid-range Android / 4G; JS budget ≤ 150 KB gzipped initial per module (CI-enforced size budget — ARCHITECTURE DEC-19).
 - Route-level code splitting; the AI consult screen and records screens lazy-loaded.
 - Fonts self-hosted and preloaded; the MVP presence (orb) stays CSS/SVG (as in the prototype), no canvas/WebGL. The future avatar will be lazy-loaded behind the `<MiraPresence>` contract (§6.5) so it never taxes the initial bundle.
 
@@ -412,7 +417,7 @@ The end-state experience is a **video call with Dr. Mira** — a virtual doctor 
 - Consult completion rate (started → submitted) ≥ 70 %, with ≥ 60 % of completed consults conducted primarily by voice (validates the core interaction model).
 - p50 end-of-speech → first reply audio < 1.5 s; p95 < 3 s (both patient and doctor conversations).
 - Median doctor time-in-consult (open → decision) < 2 minutes; ≥ 50 % of doctors keep Mira's spoken presentation enabled after their first week (trust signal).
-- Lighthouse PWA + Performance ≥ 90 on both apps.
+- Lighthouse PWA + Performance ≥ 90 on both modules.
 - New-hospital onboarding < 1 hour of operator effort.
 
 ## 8A. Risks & Mitigations
@@ -433,8 +438,8 @@ The end-state experience is a **video call with Dr. Mira** — a virtual doctor 
 - **Audio retention (was Q2a)** — **Decided: transcripts only for MVP.** Raw patient audio is streamed for transcription and not retained; lighter privacy burden, transcripts carry the audit value. Revisit if QA needs emerge.
 - **Languages (was Q3)** — **Decided: architect for i18n, ship English first.** All user-facing strings externalized and the voice pipeline provider-selected with Indic-language support in mind; Kannada/Telugu/Hindi are fast-follows, not MVP.
 - **Doctor App voice sequencing (was Q6)** — **Decided: MVP-1.** The Doctor App ships visual-first in MVP-0; coordinator-mode voice (D-7 – D-9) lands in MVP-1 reusing the proven patient voice stack. (Reflected in the §2 release ladder.)
-- **Domain scheme (was Q1, decided in review)** — **One subdomain per hospital, apps as path segments**: `⟨hospital⟩.vd.app/patient` and `⟨hospital⟩.vd.app/doctor`, extensible to future sub-apps (`/pharmacy`, …). One wildcard cert/DNS entry covers all tenants; the subdomain resolves the tenant, the first path segment selects the app. Per-tenant PWA manifests are served per subdomain. (Needed by MVP-1; MVP-0 pilots on a single dev domain.)
-- **Image sharing (was Q7)** — **Decided: MVP-1 for photos; video later.** Claude vision makes analysis straightforward, but upload UX + storage policies don't belong in the smallest loop-validating build. Related later-phase items remain flagged in §3A: Mira's live research lookup, outbound virtual call, doctor-joined video conferences.
+- **Domain scheme (was Q1, decided in review)** — **One subdomain per hospital, modules as path segments**: `⟨hospital⟩.vd.app/patient` and `⟨hospital⟩.vd.app/doctor`, extensible to future modules (`/pharmacy`, …). One wildcard cert/DNS entry covers all tenants; the subdomain resolves the tenant, the first path segment selects the module. Per-tenant PWA manifests are served per subdomain. (Needed by MVP-1; MVP-0 pilots on a single dev domain.)
+- **Image sharing (was Q7)** — **Decided: MVP-1 for photos; video later.** Gemini vision makes analysis straightforward, but upload UX + storage policies don't belong in the smallest loop-validating build. Related later-phase items remain flagged in §3A: Mira's live research lookup, outbound virtual call, doctor-joined video conferences.
 - **Voice provider (was §9.2 #1)** — **Decided: Deepgram (streaming STT) + Google Chirp 3 HD (TTS).** Deepgram's $200 signup credit (no card required) covers MVP-0 pilot volume outright (~430 hours of audio at Nova-3 rates). Google Chirp 3 HD's free tier (1M characters/month, recurring) covers roughly 250 five-minute consults/month at no cost, with strong voice quality. Both sit behind the provider-agnostic `packages/voice` interface (R-7), so either can be swapped later — e.g. to Sarvam AI, whose Indic-language-native TTS may be the better long-term fit once Kannada/Telugu/Hindi fast-follows (§9.1 languages) are underway. Per-consult cost at these rates is ~₹6–12 (see R-3, §8A).
 - **Notifications (was §9.2 #1)** — **Decided: web push is MVP**, not a later enhancement. Patients are notified the moment a consult is approved, without needing the app open. iOS Safari's push limitations (R-4, §8A) mean in-app status remains the guaranteed fallback there — push is additive, not the only path, and the Android-first pilot cohort (R-4) sidesteps the gap for most of MVP-0.
 - **Doctor assignment (was §9.2 #2)** — **Decided: single doctor for MVP-0**, so routing is moot at pilot scale — every consult goes to the one reviewing doctor. The schema and queue mechanism are already assignment-free/hospital-wide (§5.2, §6.4 `consults.hospital_id`), so adding more doctors to the shared queue later requires no redesign. **Later phase**: a specialty-aware "Doctor Queue" — routing consults to the doctor whose expertise matches the case — layers on top once there are enough doctors and specialties to route between; it's a natural pairing with the Specialist Agents (§3B.1, Phase 2+) and should reuse their specialty tagging rather than inventing a second taxonomy.

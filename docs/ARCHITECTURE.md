@@ -1,9 +1,9 @@
 # Virtual Doctor — Architecture Document (Source of Truth)
 
-**Version:** 1.6 (v1.1 aligned to PRD v0.2 — MVP-0/MVP-1 ladder, RA-1 gate, lifecycle edge cases, Consult Trace; v1.2 absorbs PRD UI-1 responsive layout + UI-2 native-shell readiness; v1.3 adds the `LlmProvider` seam, prompt rollout/rollback, Consult Trace scaling plan, and the phase dependency graph; v1.4 adds §11.4 PWA instant-load/app-shell/preload architecture, AP-8, DEC-17/DEC-18; v1.5 renames the "Doctor Desk" app to **Doctor App / Doctor PWA** — folder `apps/doctor/`; v1.6 merges in decisions made on `main` in parallel — DEC-1 domain scheme changes to one subdomain + path-scoped apps (`⟨slug⟩.vd.app/patient` \| `/doctor`, superseding the earlier two-subdomain scheme, with §5.1/§5.2/DEC-12 updated for the shared-origin session model), DEC-2 voice provider changes to Deepgram + Google Chirp 3 HD, and §13 Compliance is removed pending a later re-add — no scope change otherwise, no scope change from the naming rename)
+**Version:** 1.9 (v1.1 aligned to PRD v0.2 — MVP-0/MVP-1 ladder, RA-1 gate, lifecycle edge cases, Consult Trace; v1.2 absorbs PRD UI-1 responsive layout + UI-2 native-shell readiness; v1.3 adds the `LlmProvider` seam, prompt rollout/rollback, Consult Trace scaling plan, and the phase dependency graph; v1.4 adds §11.4 PWA instant-load/app-shell/preload architecture, AP-8, DEC-17/DEC-18; v1.5 renames the "Doctor Desk" app to **Doctor App / Doctor PWA** — folder `apps/doctor/`; v1.6 merges in decisions made on `main` in parallel — DEC-1 domain scheme changes to one subdomain + path-scoped apps (`⟨slug⟩.vd.app/patient` \| `/doctor`, superseding the earlier two-subdomain scheme, with §5.1/§5.2/DEC-12 updated for the shared-origin session model), DEC-2 voice provider changes to Deepgram + Google Chirp 3 HD, and §13 Compliance is removed pending a later re-add; v1.7 reframes the product topology from **two separate PWAs** to **one single PWA with per-module entry points** (patient, doctor, future pharmacy), each selected by a URL path segment, sharing a configurable app shell (`AppShell`) + `packages/ui` while retaining full per-module UI customization — one Vite build, one deploy, with route/module-level lazy-loading so a module never downloads another module's chunk; adds DEC-19 (single-build module topology, CI import-boundary + per-module size budget), rewrites §1.1/§4/§5.1, and reconciles DEC-12/DEC-15/DEC-17 and §12 to one deployment — no product-scope change; v1.8 switches the default LLM from Anthropic `claude-fable-5` to Google **`gemini-2.5-flash`** on cost grounds (DEC-11), renaming the `LlmProvider` MVP adapter `anthropic.ts` → `gemini.ts` and updating §1.3 seam 6, the tech table, the diagram, `ai_config.model` default, and DEC-8/Phase-6 photo vision to Gemini — the `LlmProvider` seam is unchanged, only the shipped adapter; v1.9 switches the monorepo toolchain from npm workspaces to **Bun** (package/script manager) + **Turborepo** task caching per **ADR 001** — build-time only, Vite/Vitest/Deno unchanged — updating the §3 Monorepo + CI rows)
 **Date:** 2026-07-07
 **Status:** Active — this document governs all implementation work.
-**Companion:** `docs/PRD.md` v0.2 (product requirements). Where this document and the PRD conflict on *how* to build, this document wins; on *what* to build, the PRD wins.
+**Companion:** `docs/PRD.md` v0.5 (product requirements). Where this document and the PRD conflict on *how* to build, this document wins; on *what* to build, the PRD wins.
 
 ---
 
@@ -25,8 +25,8 @@ This document is the **single source of truth** for every agent (human or AI) bu
 
 ```
                         ┌────────────────────────────────────────────┐
-                        │                 Browsers                   │
-                        │  Patient PWA          Doctor PWA           │
+                        │        One PWA · per-module entry points   │
+                        │  /patient module      /doctor module       │
                         │  ⟨slug⟩.vd.app/patient  ⟨slug⟩.vd.app/doctor │
                         └──────┬───────────────────────┬─────────────┘
              HTTPS / WSS       │                       │
@@ -48,8 +48,8 @@ This document is the **single source of truth** for every agent (human or AI) bu
         └───────────────────┼──────────────────────────────────────────── ┘
                             ▼
         ┌───────────────┐  ┌───────────────┐  ┌────────────────┐
-        │ Anthropic API │  │ Streaming STT │  │ Streaming TTS  │
-        │ claude-fable-5│  │ (Deepgram)    │  │ (Google Chirp  │
+        │  Google       │  │ Streaming STT │  │ Streaming TTS  │
+        │  Gemini API   │  │ (Deepgram)    │  │ (Google Chirp  │
         │               │  │               │  │  3 HD)         │
         └───────────────┘  └───────────────┘  └────────────────┘
 ```
@@ -78,7 +78,7 @@ These are the four abstractions we build *before* we strictly need them, because
 3. **Agent registry** — agents are config (prompt + model + tools + policies), routed by an orchestrator (§7). Splitting the MVP's single LLM into specialist agents is config, not refactor.
 4. **i18n scaffolding** — all user-facing strings go through a message catalog from day one; English is the only shipped locale in MVP (Kannada/Telugu/Hindi later).
 5. **Platform capability layer** (`packages/platform`) — PRD UI-2 makes native app containers (Capacitor/TWA) the later-phase end-state, so browser capabilities that differ under a native shell — notifications/push subscription, install prompt, share, persistent storage, in-app back navigation — are accessed only through thin wrappers here, never called raw from components. Mic acquisition already lives behind `packages/voice`. This is wrappers, not a plugin framework: each is a small module with a web implementation today and room for a native one later.
-6. **`LlmProvider` interface** (`supabase/functions/_shared/llm/`) — every place the orchestrator calls a model goes through one adapter interface (`complete(prompt, opts): AsyncIterable<Token>` plus a structured-output variant), mirroring `VoiceProvider` (§6.3). MVP ships exactly one adapter, `anthropic.ts` (`claude-fable-5`), and nothing else. This is not "multi-model support" — it is the same reversibility bet already made for STT/TTS: the LLM call is the single most expensive and most safety-critical dependency in the system, and it is the one place a vendor or pricing change would otherwise force a rewrite instead of a config change. **No code outside the adapter may reference the Anthropic SDK, endpoint, or response shape directly** — the orchestrator and agent registry (§7) only ever see the adapter interface.
+6. **`LlmProvider` interface** (`supabase/functions/_shared/llm/`) — every place the orchestrator calls a model goes through one adapter interface (`complete(prompt, opts): AsyncIterable<Token>` plus a structured-output variant), mirroring `VoiceProvider` (§6.3). MVP ships exactly one adapter, `gemini.ts` (`gemini-2.5-flash`), and nothing else. This is not "multi-model support" — it is the same reversibility bet already made for STT/TTS: the LLM call is the single most expensive and most safety-critical dependency in the system, and it is the one place a vendor or pricing change would otherwise force a rewrite instead of a config change. **No code outside the adapter may reference the Google Gemini SDK, endpoint, or response shape directly** — the orchestrator and agent registry (§7) only ever see the adapter interface.
 
 Everything else follows YAGNI. Specifically **not** abstracted in MVP: no repository pattern over Supabase, no event bus, no microservices, no GraphQL, no custom design-system framework, no monorepo tooling beyond npm workspaces until build times demand it.
 
@@ -90,24 +90,25 @@ PRD v0.2 decided several formerly open questions itself (PRD §9.1) and left the
 
 | # | Decision | Rationale / reversal cost |
 |---|---|---|
-| DEC-1 | Domain scheme: **one subdomain per hospital, apps as path segments** — `⟨slug⟩.vd.app/patient` and `⟨slug⟩.vd.app/doctor` (extensible to future sub-apps, e.g. `/pharmacy`). One wildcard cert/DNS entry covers all tenants; the subdomain resolves the tenant, the first path segment selects the app. The apex domain is an env value (`VITE_VD_DOMAIN`), no code depends on a literal domain. | Decided in PRD review (PRD §9.1) — one wildcard entry instead of two per tenant, and both apps share an origin (simpler cookie/session model, §5.2). Reversal: DNS + routing-rule change only. |
+| DEC-1 | Domain scheme: **one subdomain per hospital, modules as path segments** — `⟨slug⟩.vd.app/patient` and `⟨slug⟩.vd.app/doctor` (extensible to future modules, e.g. `/pharmacy`). One wildcard cert/DNS entry covers all tenants; the subdomain resolves the tenant, the first path segment selects the module within the single PWA (DEC-19). The apex domain is an env value (`VITE_VD_DOMAIN`), no code depends on a literal domain. | Decided in PRD review (PRD §9.1) — one wildcard entry instead of two per tenant, and all modules share an origin (simpler cookie/session model, §5.2). Reversal: DNS + routing-rule change only. |
 | DEC-2 | Voice providers: **Deepgram** (streaming STT, Nova-3 model) + **Google Chirp 3 HD** (streaming TTS) as MVP defaults. Both behind the `VoiceProvider` interface. Browser Web Speech API is a dev/demo fallback only. | Decided in PRD review (PRD §9.1): Deepgram's signup credit covers MVP-0 pilot volume outright; Chirp 3 HD's free tier (1M characters/month) covers ~250 five-minute consults/month at no cost with strong voice quality; per-consult cost ~₹6–12. Reversal: implement one adapter file — e.g. to Sarvam AI for Indic-native TTS once the language fast-follows (§9.1) are underway. |
 | DEC-3 | **Transcripts only** — raw patient audio is never persisted in MVP. | Lighter privacy burden (PRD rec). Reversal: add a storage sink to the STT adapter + consent copy. |
 | DEC-4 | **English only at launch**, all strings through the i18n catalog. | PRD rec. Reversal: add locale files. |
 | DEC-5 | In-app status is the required notification channel; **web push ships in MVP-1** (not blocking earlier phases). | Push is additive; service worker already exists for PWA. |
 | DEC-6 | **Shared hospital-wide review queue**; no doctor routing/specialty assignment in MVP. | PRD rec. Reversal: add `assigned_doctor_id` column + filter. |
 | DEC-7 | Doctor app coordinator-mode **voice ships in MVP-1** (Doctor app launches visual-first in MVP-0). | Decided in PRD §9.1 — reuses the proven patient voice stack. |
-| DEC-8 | **Patient photo sharing ships in MVP-1**, analyzed via Claude vision; video deferred. | Decided in PRD §9.1 — not part of the smallest loop-validating build. |
+| DEC-8 | **Patient photo sharing ships in MVP-1**, analyzed via Gemini vision; video deferred. | Decided in PRD §9.1 — not part of the smallest loop-validating build. |
 | DEC-9 | Package manager **npm** (workspaces); **no Turborepo** until cold build exceeds ~60 s. | Smallest tool surface. Reversal: add turbo.json, zero code change. |
 | DEC-10 | Target market is **India-first** (₹ economics in PRD): compliance baseline is DPDP Act 2023 + Telemedicine Practice Guidelines 2020, with ABDM and HIPAA as design considerations, not deliverables (compliance section removed for now — to be re-added). | Reversal: compliance section widens; architecture already accommodates it. |
-| DEC-11 | Model: `claude-fable-5` primary, per-hospital override via `hospitals.ai_config.model`. Vision (photo analysis) uses the same model. | PRD A-2. |
-| DEC-12 | Hosting: static apps on **Cloudflare Pages** (two projects — patient, doctor — fronted by one custom domain with path-based routing rules mapping `/patient/*` → the patient project and `/doctor/*` → the doctor project; default project domains in MVP-0, wildcard tenant subdomain + path routing wired in MVP-1 per DEC-1); Supabase for everything else. | Reversal: any static host works — the apps are pure static builds; the path-routing rule is the one Cloudflare-specific piece. |
+| DEC-11 | Model: `gemini-2.5-flash` primary (Google Gemini — chosen over Claude on cost), per-hospital override via `hospitals.ai_config.model` (e.g. a hospital may pin `gemini-2.5-pro`). Vision (photo analysis) uses the same model. | PRD A-2; cost-driven default. |
+| DEC-12 | Hosting: the single PWA (DEC-19) is a **static build on Cloudflare Pages** (one project) fronted by the wildcard tenant subdomain; the client-side router maps the first path segment (`/patient`, `/doctor`, …) to a module (default project domain in MVP-0, wildcard tenant subdomain wired in MVP-1 per DEC-1). A history-fallback rule rewrites unknown paths to the app shell so deep links into any module resolve. Supabase for everything else. | Reversal: any static host with SPA history-fallback works — the build is a pure static bundle. |
 | DEC-13 | Lifecycle timers (review SLA, abandonment, expiry — PRD §3A.5) run as **`pg_cron` jobs inside Postgres** calling SQL functions that write `consult_events` and flip statuses. No external scheduler, no queue infrastructure. | Timers are per-hospital config read from `hospitals.ai_config`. Reversal: swap cron jobs for a worker — the SQL functions stay. |
 | DEC-14 | **One open consult per patient per hospital** (PRD §3A.5) enforced by a **partial unique index** on `consults (patient_id, hospital_id) WHERE status IN ('active','pending_review')` — database-level, like all other invariants. | App code treats the conflict as "resume existing consult". Reversal: drop the index. |
-| DEC-15 | **Responsive strategy (PRD UI-1, MVP-0):** mobile-first CSS with **two canonical breakpoints** — `tablet ≥ 768px`, `desktop ≥ 1120px` — defined once in `packages/theme` (exported TS consts + documented media-query snippets) and used by name everywhere. Page-level reflow is owned by layout components (`AppShell`, the Doctor app's review layout): stacked single-column on phone → two/three-pane on desktop. **No user-agent/device sniffing, no separate mobile builds** — one build per app, CSS decides layout. | Two breakpoints cover phone/tablet/desktop per UI-1 without a grid-system dependency. Reversal: add a breakpoint constant. |
+| DEC-15 | **Responsive strategy (PRD UI-1, MVP-0):** mobile-first CSS with **two canonical breakpoints** — `tablet ≥ 768px`, `desktop ≥ 1120px` — defined once in `packages/theme` (exported TS consts + documented media-query snippets) and used by name everywhere. Page-level reflow is owned by layout components (`AppShell`, the Doctor app's review layout): stacked single-column on phone → two/three-pane on desktop. **No user-agent/device sniffing, no separate mobile builds** — one build for the whole PWA, CSS decides layout. | Two breakpoints cover phone/tablet/desktop per UI-1 without a grid-system dependency. Reversal: add a breakpoint constant. |
 | DEC-16 | **Native-shell readiness (PRD UI-2, later phase):** target wrapper is **Capacitor** (one codebase → Play Store + App Store; TWA remains an Android-only alternative). Binding MVP rules so this stays a packaging task, not a rewrite: (a) no browser-only APIs without a native equivalent in load-bearing paths; (b) platform capabilities only via `packages/platform` (seam 5) / `packages/voice` for mic; (c) UI never assumes browser chrome — every screen reachable via in-app navigation, no reliance on the URL bar or browser-back as the only way out; (d) push lands (MVP-1, DEC-5) behind the platform wrapper so web-push can later be joined by FCM/APNs. **No Capacitor dependency, config, or native project is added before its phase.** | Mirrors the avatar pattern: deferred, but the end-state. Reversal: none needed — the rules cost ~zero if the wrap never happens. |
-| DEC-17 | **Workbox via `injectManifest`, not `generateSW`** (both apps, `vite-plugin-pwa`), with an explicit per-route-class caching strategy matrix (§11.4) instead of one blanket strategy. `generateSW`'s defaults are tuned for generic sites, not a call-screen voice app with a hard latency budget (§6.1) that must never itself be cached. | `injectManifest` costs one hand-written service worker file per app vs. config-only, but is the only way to guarantee `NetworkOnly` on consult endpoints while still getting `CacheFirst` instant loads everywhere else. Reversal: switch to `generateSW` + custom runtime caching config — same cost either way, this just names the choice. |
+| DEC-17 | **Workbox via `injectManifest`, not `generateSW`** (one service worker for the PWA, `vite-plugin-pwa`), with an explicit per-route-class caching strategy matrix (§11.4) instead of one blanket strategy. `generateSW`'s defaults are tuned for generic sites, not a call-screen voice app with a hard latency budget (§6.1) that must never itself be cached. | `injectManifest` costs one hand-written service worker file vs. config-only, but is the only way to guarantee `NetworkOnly` on consult endpoints while still getting `CacheFirst` instant loads everywhere else. Reversal: switch to `generateSW` + custom runtime caching config — same cost either way, this just names the choice. |
 | DEC-18 | **TanStack Query cache persisted to IndexedDB** (`persistQueryClient` + an IndexedDB storage adapter) for stable, non-live data only: hospital theme/config, patient profile, records list/detail. Consult-in-progress and queue data are explicitly excluded — persisted stale data there is a correctness risk, not a UX win. | Makes repeat app launches paint real content immediately from disk instead of a blank shell + spinner while the network round-trips — the single biggest lever for "feels installed, not loading" on a warm return visit. Reversal: drop the persister plugin; TanStack Query still works in-memory-only. |
+| DEC-19 | **Single PWA, per-module entry points — one Vite build, one deploy.** Patient, doctor, and future modules (pharmacy, …) are `modules/*` inside one `apps/web` shell, selected by the first URL path segment (DEC-1). They share a configurable app shell (`AppShell` — header/nav/footer, driven by per-module config) and `packages/ui`, while retaining full per-module UI customization. Download isolation ("a module never ships another module's code") is preserved **by code-splitting, not by separate builds**: each module is a route-level lazy chunk, so `/patient` never loads the `/doctor` chunk. Two guardrails make this binding: (a) a **CI import-boundary rule** — `modules/*` may import `apps/web` shell exports and any `packages/*`, but never another `modules/*`; (b) a **per-module initial-JS size budget** (§11) enforced in CI. Per-module PWA installability is preserved via distinct manifest `scope`/`start_url` per module (§5.1), all emitted from the one deployment. | Replaces the earlier "two independent Vite builds / two Cloudflare projects" topology; the isolation goal is unchanged, only its mechanism. Reversal: split a module back into its own `apps/*` Vite app — the shell + `packages/*` seams already make this a config move, not a rewrite. |
 
 ---
 
@@ -117,18 +118,18 @@ PRD v0.2 decided several formerly open questions itself (PRD §9.1) and left the
 |---|---|---|
 | Language | TypeScript, `strict: true` everywhere (apps, packages, Edge Functions) | Latest stable minor |
 | UI | React 19 + Vite | Pin major |
-| Monorepo | npm workspaces | — |
+| Monorepo | **Bun** workspaces (package manager + script runner) + **Turborepo** task caching (ADR 001). Bun is build-time only — it runs Vite/Vitest, it does not replace them, and it never runs `supabase/functions/*` (Deno). | Pin Bun + Turborepo majors |
 | Styling | CSS Modules + design tokens as CSS variables (`packages/theme`). **No runtime CSS-in-JS. No Tailwind.** | — |
 | Data/state | TanStack Query v5 over `@supabase/supabase-js`; React state/context for UI-local state. **No Redux/Zustand/MobX.** | Pin major |
 | Validation | Zod — single schema source in `packages/core`, used by browser *and* Edge Functions | Pin major |
-| PWA | `vite-plugin-pwa` (Workbox, `injectManifest` mode — DEC-17) per app; caching/preload architecture in §11.4 | Pin major |
+| PWA | `vite-plugin-pwa` (Workbox, `injectManifest` mode — DEC-17), one service worker for the PWA with per-module manifest scopes (§5.1); caching/preload architecture in §11.4 | Pin major |
 | Backend | Supabase: Postgres 15+ / RLS, Auth, Realtime, Storage, Edge Functions (Deno) | Managed |
-| AI | Anthropic API, `claude-fable-5`, streaming, structured JSON output | API version pinned in one const |
+| AI | Google Gemini API, `gemini-2.5-flash`, streaming, structured JSON output | API version pinned in one const |
 | STT | Deepgram streaming WS (adapter) | — |
 | TTS | Google Chirp 3 HD streaming (adapter) | — |
 | Tests | Vitest (unit), Testing Library (component), Playwright (E2E smoke), pgTAP or SQL scripts (RLS tests) | — |
 | Lint/format | ESLint (typescript-eslint, react-hooks) + Prettier, single root config in `packages/config` | — |
-| CI | GitHub Actions: typecheck + lint + unit tests + build on every PR; RLS tests on schema changes | — |
+| CI | GitHub Actions: typecheck + lint + unit tests + build on every PR (run through **Turborepo** cache — only changed packages re-execute), `bun install --frozen-lockfile`; RLS tests on schema changes | — |
 
 **Adding a dependency** to any package requires a one-line justification in the PR description and must not overlap an existing dependency's capability. Bundle-affecting deps must fit the performance budget (§11).
 
@@ -139,18 +140,21 @@ PRD v0.2 decided several formerly open questions itself (PRD §9.1) and left the
 ```
 virtual-doctor/
 ├── apps/
-│   ├── patient/                  # Patient PWA
-│   │   ├── src/
-│   │   │   ├── routes/           # route components (lazy-loaded)
-│   │   │   ├── features/         # consult/, records/, profile/, onboarding/
-│   │   │   └── app.tsx, main.tsx
-│   │   ├── index.html
-│   │   └── vite.config.ts
-│   └── doctor/                   # Doctor PWA
-│       └── src/
-│           ├── routes/
-│           ├── features/         # queue/, review/, mira-panel/
-│           └── ...
+│   └── web/                      # the single PWA — one Vite build, one deploy (DEC-19)
+│       ├── src/
+│       │   ├── shell/            # AppShell: header/nav/footer, per-module config, layout primitives
+│       │   ├── router.tsx        # first path segment → lazy-loaded module (DEC-1)
+│       │   ├── main.tsx, app.tsx
+│       │   └── modules/
+│       │       ├── patient/      # /patient module — route-level lazy chunk
+│       │       │   ├── routes/   # (lazy-loaded)
+│       │       │   └── features/ # consult/, records/, profile/, onboarding/
+│       │       └── doctor/       # /doctor module — route-level lazy chunk
+│       │           ├── routes/
+│       │           └── features/ # queue/, review/, mira-panel/
+│       │                         #   (future: src/modules/pharmacy/, …)
+│       ├── index.html
+│       └── vite.config.ts        # manualChunks: one chunk per module (download isolation)
 ├── packages/
 │   ├── ui/                       # shared components (§10) — presentational only
 │   ├── theme/                    # design tokens, light/dark, per-hospital accent
@@ -176,7 +180,8 @@ virtual-doctor/
 
 **Import rules (enforced by ESLint boundaries):**
 
-- `apps/*` may import any `packages/*`. Apps never import from each other.
+- `apps/web` (shell + router) may import any `packages/*`.
+- `apps/web/src/modules/*` may import the `apps/web` shell exports and any `packages/*`, but **never another `modules/*`** (DEC-19 import-boundary rule — this is what keeps the module chunks independently splittable and downloadable in isolation). A CI check enforces it in addition to ESLint boundaries.
 - `packages/ui` may import `theme` and `core` only — never `api` or `voice` (components receive data and callbacks via props).
 - `packages/voice` may import `core` only.
 - `packages/api` may import `core` only.
@@ -190,11 +195,11 @@ virtual-doctor/
 
 ### 5.1 Tenant resolution
 
-*(Design is MVP-0 — every table, policy, and theme token is tenant-scoped from the first migration. Delivery — subdomain + path resolution, per-tenant manifests, onboarding — ships in Phase 6/MVP-1; MVP-0 seeds the single pilot hospital directly and the apps load its config by env-configured slug.)*
+*(Design is MVP-0 — every table, policy, and theme token is tenant-scoped from the first migration. Delivery — subdomain + path resolution, per-tenant manifests, onboarding — ships in Phase 6/MVP-1; MVP-0 seeds the single pilot hospital directly and the PWA loads its config by env-configured slug.)*
 
-1. Browser loads `citycare.vd.app/patient` (or `/doctor`). The routing layer (DEC-12) maps the path segment to the correct static app *before* any app code runs; the app itself then parses the subdomain → slug `citycare` (in `packages/core/tenant.ts`; the *only* place subdomain parsing exists) — the path segment is a routing concern, not something app code re-derives.
-2. App fetches the hospital row (public read of `id, slug, name, logo_url, theme` only — RLS exposes nothing else anonymously) and applies theme tokens by setting CSS variables on `:root`.
-3. `tenant-manifest` Edge Function serves a `manifest.webmanifest` **per tenant *and* per app** (name, icons, theme color, and a `scope`/`start_url` of `/patient` or `/doctor`) so each hospital's two installs are independently installable PWAs — despite sharing an origin, the manifest `scope` keeps them as two separate home-screen apps, not one app with two screens.
+1. Browser loads `citycare.vd.app/patient` (or `/doctor`). The single PWA's client-side router (DEC-12, DEC-19) maps the first path segment to the correct module and lazy-loads its chunk; the shell then parses the subdomain → slug `citycare` (in `packages/core/tenant.ts`; the *only* place subdomain parsing exists) — the path segment selects the module, it is not something app code re-derives for tenancy.
+2. The shell fetches the hospital row (public read of `id, slug, name, logo_url, theme` only — RLS exposes nothing else anonymously) and applies theme tokens by setting CSS variables on `:root`.
+3. `tenant-manifest` Edge Function serves a `manifest.webmanifest` **per tenant *and* per module** (name, icons, theme color, and a `scope`/`start_url` of `/patient` or `/doctor`) so each hospital's modules are each independently installable PWAs from the *one* deployment (DEC-19). The distinct manifest `scope` per module is what lets a patient and a doctor install separate home-screen apps despite sharing an origin and a build.
 4. The hospital `id` is attached to every consult at creation *server-side* (the Edge Function resolves slug → id itself; the client's claim is never trusted).
 
 ### 5.2 Auth & session
@@ -202,7 +207,7 @@ virtual-doctor/
 - Patients: Supabase Google OAuth. First sign-in triggers the profile wizard (`patient_details` row).
 - Doctors: email/password, provisioned by the operator (no self-signup path exists in the UI or API).
 - JWT custom claims (set via Supabase auth hook): `role`, and memberships are resolved by RLS via the `memberships` table (not stuffed into the token, so revocation is immediate).
-- Session persists across PWA launches (Supabase default localStorage persistence is acceptable). **Under the path-scoped domain scheme (DEC-1), patient and doctor share one origin per hospital** — unlike the earlier two-subdomain design, browser storage is no longer origin-isolated between them. Session/role separation is therefore an **application-level rule, not a browser one**: the Supabase client instance, its localStorage key prefix, and the JWT's `role` claim are namespaced per app (`patient`/`doctor`) so a token issued for one can never be read or reused by the other, and RLS is still the actual authorization boundary (AP-2) regardless. This is checked in the Phase 1 RLS/auth test suite, not assumed from same-origin isolation.
+- Session persists across PWA launches (Supabase default localStorage persistence is acceptable). **Under the path-scoped domain scheme (DEC-1), patient and doctor share one origin per hospital** — unlike the earlier two-subdomain design, browser storage is no longer origin-isolated between them. Session/role separation is therefore an **application-level rule, not a browser one**: the Supabase client instance, its localStorage key prefix, and the JWT's `role` claim are namespaced per module (`patient`/`doctor`) so a token issued for one can never be read or reused by the other, and RLS is still the actual authorization boundary (AP-2) regardless. This is checked in the Phase 1 RLS/auth test suite, not assumed from same-origin isolation.
 
 ### 5.3 The consult turn (text or voice) — one code path
 
@@ -299,9 +304,9 @@ interface VoiceProvider {
 
 Adapters: `deepgram.ts`, `chirp.ts`, `webspeech.ts` (dev only). Provider selection comes from hospital config with platform default. **No code outside the adapters may reference a provider SDK or endpoint.**
 
-### 6.4 Turn-taking state machine (in `packages/voice`, consumed by both apps)
+### 6.4 Turn-taking state machine (in `packages/voice`, consumed by both modules)
 
-States: `idle → listening → thinking → speaking → listening …` with `error` and `ended`. This machine is the single driver of `<MiraPresence>` in both apps — patient mode and coordinator mode differ only in who is on the other end.
+States: `idle → listening → thinking → speaking → listening …` with `error` and `ended`. This machine is the single driver of `<MiraPresence>` in both the patient and doctor modules — patient mode and coordinator mode differ only in who is on the other end.
 
 ---
 
@@ -314,7 +319,7 @@ An **agent is a config object, not a class hierarchy**:
 ```ts
 interface AgentConfig {
   id: 'receptionist' | 'doctor' | /* phase 2+: */ 'pharmacy' | 'lab' | `specialist:${string}` | 'supervisor' | 'comms';
-  model: string;                    // default claude-fable-5
+  model: string;                    // default gemini-2.5-flash
   systemPrompt: (ctx: ConsultContext) => string;   // template, assembled server-side
   tools: ToolName[];                // allowlist from the shared tool registry
   policies: { maxTurns: number; maxTokensPerCall: number };
@@ -441,7 +446,7 @@ The trace is a **read model, not new write paths**: every step of a consult alre
 
 ## 9. Multi-Tenancy Summary
 
-- Tenant = `hospitals` row; resolved from subdomain, app resolved from path segment (§5.1, DEC-1 — delivery in MVP-1; MVP-0 uses an env-configured slug for the pilot); enforced by RLS (§8.3); themed by CSS variables + per-tenant, per-app manifest (§5.1).
+- Tenant = `hospitals` row; resolved from subdomain, module resolved from path segment (§5.1, DEC-1 — delivery in MVP-1; MVP-0 uses an env-configured slug for the pilot); enforced by RLS (§8.3); themed by CSS variables + per-tenant, per-module manifest (§5.1).
 - A patient with accounts at two hospitals has two `memberships`; data never crosses (T-4).
 - Per-hospital config surface (all in `hospitals` row): `theme` (colors/logo/name), `ai_config` (model override, voice persona id, quotas). Nothing else is per-hospital in MVP.
 
@@ -451,22 +456,22 @@ The trace is a **read model, not new write paths**: every step of a consult alre
 
 ### 10.1 Rules
 
-1. **Single source**: every visual element used by both apps lives in `packages/ui`. App-local components are allowed only when genuinely app-specific (e.g., the Doctor app's queue card); the moment the second app needs it, it moves to `packages/ui` in the same PR.
+1. **Single source**: every visual element used by more than one module lives in `packages/ui`. Module-local components are allowed only when genuinely module-specific (e.g., the doctor module's queue card); the moment a second module needs it, it moves to `packages/ui` in the same PR.
 2. **Presentational only**: `ui` components take props and callbacks; they never fetch, never import `api`/`voice`, never read router or Supabase state.
 3. **Tokens only**: no literal colors, font sizes, spacing, radii, or shadows in any component — CSS variables from `packages/theme` exclusively (`--vd-accent`, `--vd-surface`, `--vd-text`, `--vd-radius-*`, `--vd-space-*`, `--vd-font-*`). This is what makes hospital branding and dark mode zero-component-change.
 4. **Accessibility floor**: every interactive component keyboard-operable, labeled, WCAG AA contrast in both themes; the consult screen fully usable with screen reader + text mode (the voice product must not be voice-*only*).
 5. Each component ships with: types, a minimal usage doc-comment, and a Testing Library test for its states. No Storybook in MVP (revisit when a designer joins).
-6. **Responsive by design (PRD UI-1, MVP-0)**: styles are written mobile-first; the only allowed breakpoints are the named `tablet`/`desktop` constants from `packages/theme` (DEC-15) — no ad-hoc pixel values in media queries. Page-level reflow belongs to layout components (`AppShell` and per-app layout shells), not to leaf components; a leaf component that must adapt to its own width uses a container query, not a viewport query. Touch targets ≥ 44px at every breakpoint. The Doctor app's queue + review screen is the canonical case: stacked single-column on phone, queue-beside-review on tablet, three-pane (queue / transcript+draft / `PatientHistoryPanel`) on desktop — designed per breakpoint, not scaled.
+6. **Responsive by design (PRD UI-1, MVP-0)**: styles are written mobile-first; the only allowed breakpoints are the named `tablet`/`desktop` constants from `packages/theme` (DEC-15) — no ad-hoc pixel values in media queries. Page-level reflow belongs to layout components (`AppShell` and per-module layout shells), not to leaf components; a leaf component that must adapt to its own width uses a container query, not a viewport query. Touch targets ≥ 44px at every breakpoint. The doctor module's queue + review screen is the canonical case: stacked single-column on phone, queue-beside-review on tablet, three-pane (queue / transcript+draft / `PatientHistoryPanel`) on desktop — designed per breakpoint, not scaled.
 
 ### 10.2 Canonical inventory (check here before creating anything)
 
 | Component | Purpose | Notes |
 |---|---|---|
 | `MiraPresence` | Mira's visual embodiment | Contract in §10.3; `OrbPresence` is the MVP implementation |
-| `TranscriptView` | scrolling conversation, interim-transcript rendering | both apps |
-| `ComposerBar` | text input + mic toggle + tap-to-finish | patient app; Doctor app reuses for Ask-Mira |
-| `RecommendationCard` | structured draft: items, why, advice, urgency | patient (read-only) + Doctor app (editable variant) |
-| `PrescriptionView` | approved prescription, print/share layout | patient + Doctor app |
+| `TranscriptView` | scrolling conversation, interim-transcript rendering | both modules |
+| `ComposerBar` | text input + mic toggle + tap-to-finish | patient module; doctor module reuses for Ask-Mira |
+| `RecommendationCard` | structured draft: items, why, advice, urgency | patient (read-only) + doctor module (editable variant) |
+| `PrescriptionView` | approved prescription, print/share layout | patient + doctor module |
 | `ConsultStatusBadge`, `UrgencyBadge`, `ConfidenceBadge`, `SafetyFlagList` | status chips | shared |
 | `QueueCard` | consult summary card for the review queue | Doctor app (lives in ui for future admin reuse) |
 | `PatientHistoryPanel` | profile + prior consults side panel | Doctor app |
@@ -496,7 +501,7 @@ interface MiraPresenceProps {
 
 ### 11.1 Performance budget (regressions are defects)
 
-- LCP < 2.5 s on mid-range Android over 4G; initial JS ≤ **150 KB gzipped per app**; Lighthouse PWA + Performance ≥ 90.
+- LCP < 2.5 s on mid-range Android over 4G; initial JS ≤ **150 KB gzipped per module** (the per-module size budget CI enforces — DEC-19); Lighthouse PWA + Performance ≥ 90.
 - Route-level code splitting; consult and records screens lazy-loaded; fonts self-hosted + preloaded (remove the prototype's Google Fonts CDN link); images `loading=lazy`, AVIF/WebP.
 - CI runs `size-limit` on both app bundles; exceeding budget fails the build.
 
@@ -560,8 +565,8 @@ Phases map onto the PRD's release ladder (PRD §2): **Phases 0–4 = MVP-0** (va
 ### — MVP-0 (single pilot hospital, tenant seeded directly; multi-tenant *schema* from day one) —
 
 ### Phase 0 — Foundation (goal: an empty but real product skeleton)
-**Deliverables:** monorepo per §4; `packages/config` toolchain; `packages/theme` tokens (light/dark) incl. the named `tablet`/`desktop` breakpoint constants (DEC-15); `packages/platform` skeleton (§1.3 seam 5 — web implementations only); `packages/core` with consult state machine, contracts (§7.3) and i18n scaffold (tenant *parsing* code exists in `core` but subdomain wiring waits for Phase 6); CI (typecheck/lint/test/build/size-limit); both apps deploy to Cloudflare Pages (default project domains) showing a themed shell branded from seeded hospital config; **PWA shell foundation (§11.4, AP-8)**: `injectManifest` Workbox setup (DEC-17) precaching the app shell, manifest `display: standalone` + safe-area insets wired into `AppShell`, and the resource-hint skeleton (`preconnect` to Supabase, self-hosted preloaded fonts) — the caching-strategy matrix itself fills in as each resource class is introduced in later phases.
-**Accept:** `npm i && npm run build` green; both apps live and branded from seed data; CI enforces budgets; a second (offline, cache-only) load of either app still paints the branded shell from the SW precache.
+**Deliverables:** monorepo per §4; `packages/config` toolchain; `packages/theme` tokens (light/dark) incl. the named `tablet`/`desktop` breakpoint constants (DEC-15); `packages/platform` skeleton (§1.3 seam 5 — web implementations only); `packages/core` with consult state machine, contracts (§7.3) and i18n scaffold (tenant *parsing* code exists in `core` but subdomain wiring waits for Phase 6); CI (typecheck/lint/test/build/size-limit, plus the DEC-19 import-boundary and per-module size-budget checks); the single PWA deploys to Cloudflare Pages (one project, default project domain) with both `/patient` and `/doctor` module routes showing a themed shell branded from seeded hospital config; **PWA shell foundation (§11.4, AP-8)**: `injectManifest` Workbox setup (DEC-17) precaching the app shell, manifest `display: standalone` + safe-area insets wired into `AppShell`, and the resource-hint skeleton (`preconnect` to Supabase, self-hosted preloaded fonts) — the caching-strategy matrix itself fills in as each resource class is introduced in later phases.
+**Accept:** `npm i && npm run build` green; both module routes live and branded from seed data; CI enforces budgets and the import-boundary rule; a second (offline, cache-only) load of either module still paints the branded shell from the SW precache.
 **Do not build yet:** any Supabase table beyond `hospitals`, any AI call, any voice code, subdomain/path routing plumbing.
 
 ### Phase 1 — Data platform & auth (goal: tenancy is real and provably isolated)
@@ -580,8 +585,8 @@ Phases map onto the PRD's release ladder (PRD §2): **Phases 0–4 = MVP-0** (va
 **Do not build yet:** Doctor app voice, avatar work of any kind.
 
 ### Phase 4 — MVP-0 hardening & pilot launch (goal: live with the design-partner hospital)
-**Deliverables:** quotas + `usage_events` + operator dashboard queries (PRD §8 and RA-2/RA-3 gate metrics measurable); Sentry + Web Vitals; security pass (headers/CSP, dependency audit, RLS re-review); accessibility pass; responsive pass — both apps exercised at phone/tablet/desktop widths against §10.1 rule 6 (UI-1); a DEC-16 readiness check (no raw capability APIs outside `packages/platform`/`voice`, no browser-chrome-dependent flows); **PWA hardening pass (§11.4)**: full caching-strategy matrix in place and verified per resource class, DEC-18 query-cache persistence live for theme/profile/records, preload/prefetch hints (route modulepreload, voice-token pre-warm) measured to actually shave latency, SW update-toast flow tested (no silent mid-consult reload), bfcache-eligibility check added to CI; PWA install polish + offline records; load sanity test (50 concurrent consults); pilot runbook (rota/SLA config for the hospital, incident + breach-notification runbooks).
-**Accept:** Lighthouse ≥ 90 both apps; RA-2 (completion/voice rates) and RA-3 (approval-with-minor-edits, median review time) computable from the dashboard on day one of the pilot; operator can audit any consult end-to-end from its trace; a warm repeat launch of either app paints real (not skeleton) theme/profile/records content before any network response returns; both apps pass a bfcache eligibility check in CI.
+**Deliverables:** quotas + `usage_events` + operator dashboard queries (PRD §8 and RA-2/RA-3 gate metrics measurable); Sentry + Web Vitals; security pass (headers/CSP, dependency audit, RLS re-review); accessibility pass; responsive pass — both modules exercised at phone/tablet/desktop widths against §10.1 rule 6 (UI-1); a DEC-16 readiness check (no raw capability APIs outside `packages/platform`/`voice`, no browser-chrome-dependent flows); **PWA hardening pass (§11.4)**: full caching-strategy matrix in place and verified per resource class, DEC-18 query-cache persistence live for theme/profile/records, preload/prefetch hints (route modulepreload, voice-token pre-warm) measured to actually shave latency, SW update-toast flow tested (no silent mid-consult reload), bfcache-eligibility check added to CI; PWA install polish + offline records; load sanity test (50 concurrent consults); pilot runbook (rota/SLA config for the hospital, incident + breach-notification runbooks).
+**Accept:** Lighthouse ≥ 90 for both modules; RA-2 (completion/voice rates) and RA-3 (approval-with-minor-edits, median review time) computable from the dashboard on day one of the pilot; operator can audit any consult end-to-end from its trace; a warm repeat launch of either module paints real (not skeleton) theme/profile/records content before any network response returns; both modules pass a bfcache eligibility check in CI.
 **Do not build yet:** anything in MVP-1 below.
 
 ### — MVP-1 (widen once the loop is proven; entry criteria = RA-2/RA-3 gates holding in the pilot, PRD §2A) —
@@ -592,7 +597,7 @@ Phases map onto the PRD's release ladder (PRD §2): **Phases 0–4 = MVP-0** (va
 **Do not build yet:** specialist/pharmacy agents, outbound calls.
 
 ### Phase 6 — Multi-tenant delivery & MVP-1 completion (goal: onboarding a second hospital is config-only)
-**Deliverables:** subdomain + path tenant/app resolution wired (T-1, DEC-1) + wildcard DNS and Cloudflare path-routing rules across both projects (DEC-12); `tenant-manifest` per-tenant, per-app PWA manifests + branded installs; operator onboarding runbook (< 1 h per hospital, executed once end-to-end for a fresh tenant); patient photo sharing (per-hospital bucket, Claude vision findings into the assessment, `consult_media`, in the trace); web push on approval; **Receptionist agent split** (own registry entry per §7.2).
+**Deliverables:** subdomain + path tenant/module resolution wired (T-1, DEC-1) + wildcard DNS and the Cloudflare SPA history-fallback/path-routing rule for the one Pages project (DEC-12, DEC-19); `tenant-manifest` per-tenant, per-module PWA manifests + branded installs; operator onboarding runbook (< 1 h per hospital, executed once end-to-end for a fresh tenant); patient photo sharing (per-hospital bucket, Gemini vision findings into the assessment, `consult_media`, in the trace); web push on approval; **Receptionist agent split** (own registry entry per §7.2).
 **Accept:** a brand-new tenant is live on its own subdomain (both `/patient` and `/doctor` paths) with zero code changes; photo consult E2E passes; push received on approval; agent split verified as config-only (no orchestrator refactor in the diff).
 
 ### 12.7 Phase dependency graph & parallel execution
