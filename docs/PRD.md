@@ -71,7 +71,7 @@ The MVP is an experiment before it is a product. Each release increment exists t
 |---|---|---|---|
 | **RA-1** | **Licensed doctors will put their name on AI-drafted prescriptions.** Liability comfort, not UX, is the adoption bottleneck. | Recruit **one design-partner hospital and 2–3 named doctors before building the Doctor Desk**; walk them through mock AI drafts and the audit/immutability model; get written intent to pilot. | **Blocking gate**: Desk build does not start until at least 2 doctors at the pilot hospital have reviewed mock drafts and agreed to sign real ones. Kill signal: doctors insist on re-doing the intake themselves. |
 | **RA-2** | **Patients will trust and complete a voice consult with a disclosed AI.** | MVP-0 pilot: consult completion rate (started → submitted) and % conducted primarily by voice (§8). | Kill/pivot signal: completion < 40 % or most completions fall back to text — revisit voice-first as the primary medium. |
-| **RA-3** | **Draft quality is high enough that review takes < 2 min and ≥ 80 % of drafts are approved with zero/minor edits.** | Measured directly from `reviews` audit data during the pilot; operator audits 100 % of MVP-0 consults. | Kill signal: sustained approval-with-minor-edits < 50 % or median review > 5 min — the "AI compresses intake" value proposition isn't holding. |
+| **RA-3** | **Draft quality is high enough that review takes < 2 min and ≥ 80 % of drafts are approved with zero/minor edits.** | Measured directly from `reviews` audit data during the pilot; operator audits 100 % of MVP-0 consults via the Consult Trace (§5.4). | Kill signal: sustained approval-with-minor-edits < 50 % or median review > 5 min — the "AI compresses intake" value proposition isn't holding. |
 
 ---
 
@@ -276,7 +276,18 @@ The Doctor Agent is Mira's clinical brain and carries both of her modes (A-9):
 - **A-9** **Two personas, one Mira, full context**: Mira runs in *patient mode* (empathetic clinician conducting intake) and *coordinator mode* (concise clinical presenter and assistant answering a peer doctor). Both modes share the same patient context — profile, consult transcript, prior visits and prescriptions — assembled server-side per consult. Coordinator-mode answers must be grounded in the stored record (with on-screen citations, D-8), not free recall. Per §3A.2 and the agent roster in §3B, Mira is **multiple agents behind one persona** (Doctor Agent alone in MVP-0; Receptionist split in MVP-1; specialists, lab, pharmacy, communication, supervisor later); the Edge Function layer is the orchestrator, and nothing about the multi-agent internals may ever leak into the user-facing voice or identity.
 - **A-10** **Concurrency**: many patients and many doctors converse with "their" Mira simultaneously. Each conversation is an independent stateless-server session (context rebuilt from the database per turn), so scaling is horizontal by design; per-hospital quotas (A-5) bound aggregate spend.
 
-### 5.4 Multi-Tenancy
+### 5.4 Consult Trace & Observability (MVP-0)
+
+Every consult must be reconstructable, end to end, in one place — a **Consult Trace**: a single chronological timeline of everything that happened in a case. This is a first-class MVP-0 requirement (the operator audits 100 % of MVP-0 consults per RA-3, and doctor trust depends on transparency per R-5), and the data architecture must be designed for it, not retrofitted.
+
+- **O-1** **Trace timeline view**: for any consult, one chronological view showing every event in order — patient sign-in/consult start, each Mira question and patient answer (voice or text, with channel noted), media shared, each agent's analysis output (draft diagnosis, confidence, safety flags — attributed to the logical agent that produced it, per §3B.3), queue entry, which doctor opened it and when, the doctor↔Mira review conversation, the doctor's action (approved/edited/rejected, with the draft-vs-final diff), the notification sent to the patient, and closure. Readable top-to-bottom like a log viewer.
+- **O-2** **Search & filter across consults**: find consults by patient, doctor, hospital, status, urgency, date range, and free-text search over transcript and draft content. Results open directly into the trace timeline.
+- **O-3** **Access scoping**: the platform operator sees traces across hospitals (console-level in MVP-0); doctors and hospital admins see only their hospital's traces under the same RLS boundary as everything else; patients see their own consult history via UC-3 (not the internal trace).
+- **O-4** **Export**: a trace is exportable as a single document (JSON + printable view) for audits, incident review, and doctor feedback discussions.
+
+**Architecture requirement**: the trace is cheap because the store is designed for it — every step already lands in an append-only table (`consult_messages`, `ai_drafts`, `review_messages`, `reviews`, `consult_media`, `prescriptions`) with timestamps and actor attribution. Two additions make the timeline complete: (1) a `consult_events` table records the transitions and system actions that aren't messages (status changes, queue entry, doctor opened, notification sent, SLA escalations per §3A.5); (2) a `consult_trace` database view unions all of these into one time-ordered stream per consult, which is what the trace UI and search read. Nothing in the flow may bypass these tables — if it isn't in the trace, it didn't happen.
+
+### 5.5 Multi-Tenancy
 
 *(Design — schema, RLS, theming tokens — is MVP-0; delivery — subdomain resolution, per-tenant manifests, onboarding — is MVP-1. MVP-0 seeds the single pilot hospital directly.)*
 
@@ -361,7 +372,15 @@ mira_feedback    id, hospital_id, doctor_id, consult_id nullable, feedback,
                  -- applied as prompt/policy updates
 consult_media    id, consult_id, kind ('image'|'video'), storage_path, ai_findings
                  jsonb, created_at   -- patient-shared photos/videos (§3A.2)
+consult_events   id, consult_id, hospital_id, event_type ('status_change'|'queued'
+                 |'doctor_opened'|'notification_sent'|'sla_escalated'|'expired'
+                 |'system'), actor ('patient'|'ai'|'doctor'|'system'), actor_id
+                 nullable, payload jsonb, created_at
+                 -- append-only; transitions & system actions not captured as
+                 -- messages, so the full flow is reconstructable (§5.4)
 ```
+
+Plus a **`consult_trace` view**: a time-ordered UNION of `consult_messages`, `ai_drafts`, `review_messages`, `reviews`, `consult_media`, `prescriptions`, and `consult_events` per consult — the single read model behind the Consult Trace timeline and search (O-1/O-2). All source tables are append-only, so the trace is complete by construction.
 
 RLS sketch: patients `patient_id = auth.uid()` on consults/prescriptions and own `patient_details`; doctors `hospital_id IN (their memberships)` with role `doctor`; `ai_drafts` writable only by the Edge Function (service role); `prescriptions` insertable only via the approval flow.
 
@@ -380,7 +399,7 @@ The end-state experience is a **video call with Dr. Mira** — a virtual doctor 
 
 - Health data is sensitive: TLS everywhere, RLS as the isolation backbone, no PHI in logs or analytics, AI provider calls proxied server-side.
 - AI safety: allergy/interaction hard rules in the server-side prompt; the doctor is the mandatory human-in-the-loop for every prescription; urgent-flag consults surface an immediate "seek emergency care" message independent of doctor review latency.
-- Auditability: every doctor action recorded with the diff between AI draft and approved prescription.
+- Auditability: every doctor action recorded with the diff between AI draft and approved prescription; the full case flow — every Mira/patient turn, agent analysis, doctor review, and outbound communication — is reconstructable and searchable via the Consult Trace (§5.4).
 - Prominent disclosure to patients that Dr. Mira is an AI — spoken by Dr. Mira herself at the start of each consult and shown as a persistent badge — and that a human doctor approves all recommendations.
 - Voice privacy: microphone access requested with clear explanation; audio streamed for transcription only (raw audio not retained — decided, §9.1); transcripts stored under the same RLS isolation as all other consult data.
 
