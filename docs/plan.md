@@ -24,10 +24,10 @@ Legend: `‖` = parallelizable · `⛔` = blocked by a gate · `→` = hard depe
 
 - **Current phase:** Phase 0 — Foundation
 - **Current position:** P0.7 complete — **Phase 0 done.** CI is `.github/workflows/ci.yml` (bun `setup-bun@v2`, `bun install --frozen-lockfile`): typecheck → lint → test → build → size, then a `main`-only Cloudflare Pages `deploy` job (gated on `CLOUDFLARE_API_TOKEN`, skipped on forks/PRs). Lint now actually runs (`bun run lint` = `eslint .`; root gained a `@vd/config` dep so the shared flat config resolves) — added `docs/design/**`, `.claude/**`, `**/sw.ts` ignores + a `disableTypeChecked` override for `*.test.ts`. **DEC-19 import boundary** enforced via `no-restricted-imports` on `modules/patient/**` ↔ `modules/doctor/**` (verified: cross-module import errors). **Per-module ≤150 KB gzip budget** via `size-limit`/`@size-limit/file` (`turbo run size`, currently 217 B / 216 B). SPA history-fallback = `apps/web/public/_redirects` (`/* /index.html 200`). Typed `vite-env.d.ts` removes `import.meta.env` unsafe-any. Local pipeline all green: lint OK, typecheck 13/13, test 28, build 7/7, size 2/2 under budget
-- **Next action:** Push branch + open PR to confirm the GitHub Actions run is green on CI infra, then tag `v0-foundation` and begin **Phase 1 — Data platform & auth** (§12 Phase 1). First subphase: Supabase project + schema migrations with tenant isolation (RLS)
+- **Next action:** Begin **Phase 1 — Data platform & auth** (§12 Phase 1). First subphase: Supabase project + schema migrations with tenant isolation (RLS). (Repo now live at github.com/nvkudva/virtual-doctor; PR #1 merged CI-green; tag `v0-foundation` cut.)
 - **Open blockers / decisions:** none blocking. **Carry-forward:** two custom lint rules that P0.3/P0.4 ACs anticipated landing "with P0.7 lint/CI" are *not yet* implemented — (a) fail-on-hardcoded-string outside the i18n catalog (seam 4), (b) no raw `Notification`/`navigator.share`/storage calls outside `@vd/platform` (seam 5). The lint/CI scaffold they depend on now exists; add both as a fast P0.7 addendum or fold into Phase 1 hardening
 - **G-1 status (RA-1 doctor sign-off):** ⬜ not yet secured — pursue in parallel; blocks Phase 2 Doctor-app half
-- **Last green tag:** _none_ (Phase 0 exit tag `v0-foundation` to be cut once CI is confirmed green on GitHub)
+- **Last green tag:** `v0-foundation` (Phase 0 exit — CI green on GitHub, PR #1 merged 2026-07-08)
 
 ### Phase completion at a glance
 
