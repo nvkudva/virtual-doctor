@@ -623,6 +623,19 @@ export type Database = {
       }
     }
     Views: {
+      consult_trace: {
+        Row: {
+          actor: string | null
+          actor_id: string | null
+          at: string | null
+          consult_id: string | null
+          hospital_id: string | null
+          kind: string | null
+          payload: Json | null
+          summary: string | null
+        }
+        Relationships: []
+      }
       hospital_public: {
         Row: {
           id: string | null
@@ -649,7 +662,15 @@ export type Database = {
       }
     }
     Functions: {
+      consult_transition_allowed: {
+        Args: {
+          from_status: Database["public"]["Enums"]["consult_status"]
+          to_status: Database["public"]["Enums"]["consult_status"]
+        }
+        Returns: boolean
+      }
       current_role_of: { Args: never; Returns: string }
+      export_consult_trace: { Args: { p_consult_id: string }; Returns: Json }
       is_member: { Args: { h: string }; Returns: boolean }
     }
     Enums: {
