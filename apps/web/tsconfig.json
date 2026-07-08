@@ -1,10 +1,11 @@
 {
-  "//": "P0.1: plain tsc typecheck of the app stub. Vite build + JSX wiring lands in P0.5.",
+  "//": "P0.5: browser SPA. Vite owns the build; tsc is typecheck-only. DOM libs + react-jsx (base is DOM-free by design).",
   "extends": "@vd/config/tsconfig.base.json",
   "compilerOptions": {
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "noEmit": true
+    "noEmit": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["vite/client"]
   },
-  "include": ["src"]
+  "include": ["src", "vite.config.ts"]
 }
