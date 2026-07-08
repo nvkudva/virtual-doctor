@@ -1,0 +1,10 @@
+{
+  "//": "P0.1: plain tsc typecheck of the app stub. Vite build + JSX wiring lands in P0.5.",
+  "extends": "@vd/config/tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "noEmit": true
+  },
+  "include": ["src"]
+}

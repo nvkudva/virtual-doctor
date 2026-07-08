@@ -1,0 +1,22 @@
+{
+  "name": "@vd/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@vd/api": "workspace:*",
+    "@vd/core": "workspace:*",
+    "@vd/platform": "workspace:*",
+    "@vd/theme": "workspace:*",
+    "@vd/ui": "workspace:*",
+    "@vd/voice": "workspace:*"
+  },
+  "devDependencies": {
+    "@vd/config": "workspace:*",
+    "typescript": "^5.9.2"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "//": "@vd/config ships JSON/JS config only — nothing to compile. Present so `turbo run build` has a no-op target.",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["*.ts"]
+}

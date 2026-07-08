@@ -23,17 +23,17 @@ Legend: `‖` = parallelizable · `⛔` = blocked by a gate · `→` = hard depe
 ## 1. Status Board  *(update this every session — it is the resume point)*
 
 - **Current phase:** Phase 0 — Foundation
-- **Current position:** _not started_
-- **Next action:** P0.1 — scaffold the monorepo (`apps/web`, `packages/*`, `supabase/`) per ARCHITECTURE §4
+- **Current position:** P0.1 complete — monorepo skeleton builds green (`bun install` clean, `bun run build` 7/7, `bun run typecheck` 13/13)
+- **Next action:** P0.2 — design tokens & theme (`packages/theme`) per ARCHITECTURE §10.2 / DEC-15
 - **Open blockers / decisions:** none
 - **G-1 status (RA-1 doctor sign-off):** ⬜ not yet secured — pursue in parallel; blocks Phase 2 Doctor-app half
-- **Last green tag:** _none_
+- **Last green tag:** _none_ (Phase 0 exit tag `v0-foundation` lands after P0.7)
 
 ### Phase completion at a glance
 
 | Phase | Milestone | MVP | State |
 |---|---|---|---|
-| 0 | Foundation — real but empty skeleton | MVP-0 | ⬜ |
+| 0 | Foundation — real but empty skeleton | MVP-0 | 🟡 |
 | 1 | Data platform & auth — tenancy provably isolated | MVP-0 | ⬜ |
 | 2 | Text consult end-to-end — the full loop, no voice | MVP-0 | ⬜ |
 | 3 | Patient voice — core experience at target latency | MVP-0 | ⬜ |
@@ -49,11 +49,11 @@ Legend: `‖` = parallelizable · `⛔` = blocked by a gate · `→` = hard depe
 **Exit tag:** `v0-foundation`
 
 ### P0.1 — Monorepo skeleton  ‖
-- [ ] Init Bun workspaces + Turborepo (ADR 001); root `package.json`, `turbo.json`, `bunfig`.
-- [ ] Create the exact tree from §4: `apps/web/`, `packages/{ui,theme,api,voice,core,platform,config}/`, `supabase/{migrations,functions,seed}/`, `docs/adr/`.
-- [ ] `packages/config`: shared `tsconfig` (`strict: true`), ESLint (typescript-eslint, react-hooks), Prettier, Vite base config.
-- [ ] Each package has a stub `index.ts` + `package.json` with correct internal deps only (§4 import rules).
-- **AC:** `bun install` clean; `bun run build` green on empty packages.
+- [x] Init Bun workspaces + Turborepo (ADR 001); root `package.json`, `turbo.json`, `bunfig`.
+- [x] Create the exact tree from §4: `apps/web/`, `packages/{ui,theme,api,voice,core,platform,config}/`, `supabase/{migrations,functions,seed}/`, `docs/adr/`.
+- [x] `packages/config`: shared `tsconfig` (`strict: true`), ESLint (typescript-eslint, react-hooks), Prettier, Vite base config.
+- [x] Each package has a stub `index.ts` + `package.json` with correct internal deps only (§4 import rules).
+- **AC:** `bun install` clean; `bun run build` green on empty packages. ✅
 
 ### P0.2 — Design tokens & theme  ‖  → P0.1
 - [ ] `packages/theme`: CSS-variable token set (`--vd-accent`, `--vd-surface`, `--vd-text`, `--vd-radius-*`, `--vd-space-*`, `--vd-font-*`), light + dark.
@@ -312,3 +312,4 @@ Legend: `‖` = parallelizable · `⛔` = blocked by a gate · `→` = hard depe
 | Date | Phase/task | What shipped | Next action |
 |---|---|---|---|
 | 2026-07-08 | — | plan.md created | Begin P0.1 |
+| 2026-07-08 | P0.1 | Monorepo skeleton: Bun workspaces + Turborepo, `packages/config` (tsconfig/eslint/prettier/vite base), all 7 packages + `apps/web` stubs with §4-correct deps, `supabase/*` placeholders. `bun run build` 7/7, `typecheck` 13/13 green | Begin P0.2 — design tokens & theme |

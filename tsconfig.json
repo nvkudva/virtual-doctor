@@ -1,0 +1,9 @@
+{
+  "//": "Root solution config for editor-wide typecheck. Turbo's ^build ordering owns the build graph; per-package tsconfig.json owns compilation.",
+  "extends": "@vd/config/tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [],
+  "exclude": ["node_modules", "dist", ".turbo"]
+}

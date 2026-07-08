@@ -2,3 +2,22 @@
 node_modules/
 .claude/
 .serena/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Turborepo
+.turbo/
+
+# Env / secrets (never commit)
+.env
+.env.*
+!.env.example
+
+# Supabase local
+supabase/.branches/
+supabase/.temp/
+
+# Test / coverage
+coverage/

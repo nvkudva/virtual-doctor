@@ -1,0 +1,7 @@
+# Bun configuration (ADR 001 — Bun is the package/script manager, build-time only).
+[install]
+# Reproducible installs: pin exact versions on add, verify lockfile in CI.
+exact = true
+
+[install.cache]
+disable = false
