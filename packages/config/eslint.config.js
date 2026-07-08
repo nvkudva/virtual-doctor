@@ -5,7 +5,17 @@ import reactHooks from 'eslint-plugin-react-hooks';
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/.turbo/**', '**/node_modules/**', '**/coverage/**'],
+    // docs/design is a vendored design import (not project source); the rest are build output.
+    ignores: [
+      '**/dist/**',
+      '**/.turbo/**',
+      '**/node_modules/**',
+      '**/coverage/**',
+      'docs/design/**',
+      '.claude/**',
+      // sw.ts runs in WebWorker scope; typechecked by tsconfig.worker.json, not the app project.
+      '**/sw.ts',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
@@ -25,9 +35,52 @@ export default tseslint.config(
     plugins: { 'react-hooks': reactHooks },
     rules: reactHooks.configs.recommended.rules,
   },
+  // DEC-19 import boundary: a `modules/*` may not import another `modules/*`. Modules stay
+  // independently code-splittable; cross-module sharing goes through packages (§4). One
+  // override per module — patterns block both the sibling dir and its barrel.
+  {
+    files: ['**/modules/patient/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              // Relative specifiers reaching the sibling module (e.g. `../doctor/routes/...`).
+              group: ['**/doctor', '**/doctor/**'],
+              message: 'DEC-19: modules/patient may not import modules/doctor — share via a package.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['**/modules/doctor/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              // Relative specifiers reaching the sibling module (e.g. `../patient/routes/...`).
+              group: ['**/patient', '**/patient/**'],
+              message: 'DEC-19: modules/doctor may not import modules/patient — share via a package.',
+            },
+          ],
+        },
+      ],
+    },
+  },
   // Config files run in Node without a project; disable type-aware linting there.
   {
     files: ['**/*.config.{js,ts}', '**/vite.base.ts'],
+    ...tseslint.configs.disableTypeChecked,
+  },
+  // Test files are excluded from the build tsconfig (vitest owns them), so the type-aware
+  // project service can't resolve them — lint them without type-checked rules.
+  {
+    files: ['**/*.test.{ts,tsx}'],
     ...tseslint.configs.disableTypeChecked,
   },
 );

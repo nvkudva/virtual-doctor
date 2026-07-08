@@ -1,0 +1,4 @@
+# Cloudflare Pages SPA history-fallback (DEC-12): the hand-rolled router reads the first
+# path segment client-side, so every non-asset path must serve the app shell. Asset files
+# (hashed JS/CSS/fonts, sw.js, manifest) are served directly by Pages before this rule.
+/*  /index.html  200
