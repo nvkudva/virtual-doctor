@@ -23,8 +23,8 @@ Legend: `‖` = parallelizable · `⛔` = blocked by a gate · `→` = hard depe
 ## 1. Status Board  *(update this every session — it is the resume point)*
 
 - **Current phase:** Phase 0 — Foundation
-- **Current position:** P0.1 complete — monorepo skeleton builds green (`bun install` clean, `bun run build` 7/7, `bun run typecheck` 13/13)
-- **Next action:** P0.2 — design tokens & theme (`packages/theme`) per ARCHITECTURE §10.2 / DEC-15
+- **Current position:** P0.2 complete — `packages/theme` ships CSS-variable tokens (119 decls, light + dark) + breakpoint consts; `bun run build` 7/7, `bun run typecheck` 13/13 green
+- **Next action:** P0.3 — core scaffold (`packages/core`): consult state machine, Zod contracts, i18n catalog (English), `tenant.ts` parsing
 - **Open blockers / decisions:** none
 - **G-1 status (RA-1 doctor sign-off):** ⬜ not yet secured — pursue in parallel; blocks Phase 2 Doctor-app half
 - **Last green tag:** _none_ (Phase 0 exit tag `v0-foundation` lands after P0.7)
@@ -56,10 +56,10 @@ Legend: `‖` = parallelizable · `⛔` = blocked by a gate · `→` = hard depe
 - **AC:** `bun install` clean; `bun run build` green on empty packages. ✅
 
 ### P0.2 — Design tokens & theme  ‖  → P0.1
-- [ ] `packages/theme`: CSS-variable token set (`--vd-accent`, `--vd-surface`, `--vd-text`, `--vd-radius-*`, `--vd-space-*`, `--vd-font-*`), light + dark.
-- [ ] Port token values / motion language from `docs/design/` (port, don't redesign — §10.2).
-- [ ] Named breakpoint constants `tablet ≥ 768`, `desktop ≥ 1120` as exported TS consts + documented media-query snippets (DEC-15).
-- **AC:** tokens importable; dark/light swap is a `:root` variable change with zero component edits.
+- [x] `packages/theme`: CSS-variable token set (`--vd-accent`, `--vd-surface`, `--vd-text`, `--vd-radius-*`, `--vd-space-*`, `--vd-font-*`), light + dark.
+- [x] Port token values / motion language from `docs/design/` (port, don't redesign — §10.2).
+- [x] Named breakpoint constants `tablet ≥ 768`, `desktop ≥ 1120` as exported TS consts + documented media-query snippets (DEC-15).
+- **AC:** tokens importable; dark/light swap is a `:root` variable change with zero component edits. ✅
 
 ### P0.3 — Core package scaffold  ‖  → P0.1
 - [ ] `packages/core`: consult **state machine** (§8.4) as a pure function/table.
@@ -313,3 +313,4 @@ Legend: `‖` = parallelizable · `⛔` = blocked by a gate · `→` = hard depe
 |---|---|---|---|
 | 2026-07-08 | — | plan.md created | Begin P0.1 |
 | 2026-07-08 | P0.1 | Monorepo skeleton: Bun workspaces + Turborepo, `packages/config` (tsconfig/eslint/prettier/vite base), all 7 packages + `apps/web` stubs with §4-correct deps, `supabase/*` placeholders. `bun run build` 7/7, `typecheck` 13/13 green | Begin P0.2 — design tokens & theme |
+| 2026-07-08 | P0.2 | `packages/theme`: `tokens.css` (119 CSS-var decls ported from `docs/design/Design.md` — type/color/radius/space/motion/status/shadow, light + `[data-theme=dark]` + prefers-color-scheme fallback), `breakpoints.ts` (`TABLET=768`/`DESKTOP=1120`/`MEDIA`), `./tokens.css` export. `bun run build` 7/7, `typecheck` 13/13 green | Begin P0.3 — core scaffold |

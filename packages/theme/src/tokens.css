@@ -1,0 +1,195 @@
+/*
+ * @vd/theme — design tokens (ARCHITECTURE §10.2, DEC-15)
+ *
+ * Ported from docs/design/Design.md — values are transcribed, not redesigned (§13).
+ * Every consumable value is a CSS custom property on :root. Theming (light/dark and,
+ * later, per-hospital branding) is a :root variable swap only — components read tokens
+ * and never branch on theme. Dark is applied via [data-theme="dark"] on <html>, with a
+ * prefers-color-scheme fallback for first paint before the app sets the attribute.
+ *
+ * Naming families (ARCHITECTURE §10.2):
+ *   --vd-accent-*   action / brand colors
+ *   --vd-surface-*  backgrounds, glass, cards
+ *   --vd-text-*     ink colors
+ *   --vd-radius-*   corner radii
+ *   --vd-space-*    spacing scale
+ *   --vd-font-*     type family, weights, sizes, line-heights, tracking
+ *   --vd-shadow-*   elevation
+ *   --vd-motion-*   durations + easing
+ *   --vd-status-*   consultation status pills
+ */
+
+:root {
+  /* ---- Type ---------------------------------------------------------- */
+  --vd-font-family: 'Instrument Sans', system-ui, -apple-system, sans-serif;
+
+  --vd-font-weight-regular: 400;
+  --vd-font-weight-medium: 500;
+  --vd-font-weight-semibold: 600;
+  --vd-font-weight-bold: 700;
+
+  /* Scale — px values from Design.md, expressed in rem (16px base). */
+  --vd-font-size-micro: 0.6875rem; /* 11 — uppercase micro-labels */
+  --vd-font-size-pill: 0.75rem; /* 12 — status pills */
+  --vd-font-size-body: 0.8125rem; /* 13 — body copy */
+  --vd-font-size-card-title: 0.9375rem; /* 15 — card titles */
+  --vd-font-size-cta: 1.0625rem; /* 17 — primary CTA */
+  --vd-font-size-app-title: 1.1875rem; /* 19 — app title */
+  --vd-font-size-profile-name: 1.25rem; /* 20 — profile name */
+  --vd-font-size-case-header: 1.3125rem; /* 21 — case header */
+  --vd-font-size-greeting: 1.5625rem; /* 25 — home greeting */
+  --vd-font-size-hero: 1.875rem; /* 30 — hero */
+
+  --vd-line-height-tight: 1.2;
+  --vd-line-height-body: 1.5;
+  --vd-line-height-relaxed: 1.6;
+
+  --vd-tracking-label: 0.06em; /* uppercase micro-labels + pills */
+  --vd-tracking-normal: 0;
+
+  /* ---- Radii --------------------------------------------------------- */
+  --vd-radius-xs: 6px;
+  --vd-radius-sm: 11px;
+  --vd-radius-md: 16px; /* default card */
+  --vd-radius-lg: 21px;
+  --vd-radius-dock: 26px; /* control dock */
+  --vd-radius-pill: 99px;
+  --vd-radius-orb: 50%;
+
+  /* ---- Spacing ------------------------------------------------------- */
+  --vd-space-1: 4px;
+  --vd-space-2: 8px;
+  --vd-space-3: 12px;
+  --vd-space-4: 16px;
+  --vd-space-5: 20px;
+  --vd-space-6: 22px; /* home gap */
+  --vd-space-7: 26px; /* page padding block-start */
+  --vd-space-8: 32px;
+  --vd-space-9: 48px;
+  --vd-space-10: 60px; /* page padding block-end */
+
+  /* ---- Motion -------------------------------------------------------- */
+  --vd-motion-fast: 140ms;
+  --vd-motion-base: 240ms;
+  --vd-motion-slow: 420ms;
+  --vd-motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --vd-motion-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ---- Color: brand / accent ---------------------------------------- */
+  --vd-accent: oklch(0.6 0.215 283); /* solid violet, mid of the CTA gradient */
+  --vd-accent-gradient: linear-gradient(
+    180deg,
+    oklch(0.66 0.2 265),
+    oklch(0.55 0.23 300)
+  );
+  --vd-accent-approve: oklch(0.68 0.155 157);
+  --vd-accent-approve-gradient: linear-gradient(
+    180deg,
+    oklch(0.735 0.15 155),
+    oklch(0.63 0.16 160)
+  );
+  --vd-accent-approve-text: #06231a;
+  --vd-accent-danger: #c0405a;
+
+  /* ---- Color: surfaces ---------------------------------------------- */
+  --vd-surface-desk: radial-gradient(
+    ellipse 120% 80% at 50% 0%,
+    #e9edf4 0%,
+    #dce1eb 100%
+  );
+  --vd-surface-app: linear-gradient(165deg, #7fa8dc 0%, #5f7cc4 48%, #414fa0 100%);
+  --vd-surface-card: #ffffff;
+  --vd-surface-glass: rgba(255, 255, 255, 0.55);
+  --vd-surface-glass-strong: rgba(255, 255, 255, 0.72);
+
+  /* ---- Color: text --------------------------------------------------- */
+  --vd-text: #243247; /* primary ink */
+  --vd-text-body: #3a4e6e;
+  --vd-text-secondary: #5a6b82;
+  --vd-text-secondary-2: #6b7a92;
+  --vd-text-muted: #8493ac;
+  --vd-text-on-glass: #1e3a5c;
+  --vd-text-on-accent: #ffffff;
+
+  /* ---- Color: status pills (bg / fg pairs) -------------------------- */
+  --vd-status-pending-bg: #ffe9a8;
+  --vd-status-pending-fg: #6b4e00;
+  --vd-status-approved-bg: #bfebd5;
+  --vd-status-approved-fg: #0e5a38;
+  --vd-status-changes-bg: #cfe0ff;
+  --vd-status-changes-fg: #1d3e86;
+  --vd-status-declined-bg: #fbd2da;
+  --vd-status-declined-fg: #8e2440;
+
+  /* ---- Elevation ----------------------------------------------------- */
+  --vd-shadow-chip: 0 1px 2px rgba(36, 50, 71, 0.08);
+  --vd-shadow-card: 0 8px 24px rgba(36, 50, 71, 0.1);
+  --vd-shadow-cta: 0 10px 24px rgba(78, 63, 160, 0.35);
+  --vd-shadow-approve: 0 10px 24px rgba(14, 90, 56, 0.28);
+  --vd-shadow-shell: 0 30px 80px rgba(36, 50, 71, 0.22);
+  --vd-shadow-popover: 0 16px 40px rgba(36, 50, 71, 0.2);
+}
+
+/*
+ * Dark theme. Design.md specifies only the light surface language, so dark inks and
+ * surfaces are derived here to keep contrast; accent hues are preserved. Applied by
+ * setting data-theme="dark" on the document element (the app's canonical switch), with
+ * a media-query fallback for the pre-hydration paint.
+ */
+:root[data-theme='dark'] {
+  --vd-accent: oklch(0.68 0.2 283);
+
+  --vd-surface-desk: radial-gradient(
+    ellipse 120% 80% at 50% 0%,
+    #1a2233 0%,
+    #121826 100%
+  );
+  --vd-surface-app: linear-gradient(165deg, #2b3a5c 0%, #232f52 48%, #171d3a 100%);
+  --vd-surface-card: #1c2434;
+  --vd-surface-glass: rgba(28, 36, 52, 0.55);
+  --vd-surface-glass-strong: rgba(28, 36, 52, 0.72);
+
+  --vd-text: #e6ecf6;
+  --vd-text-body: #c4cfe0;
+  --vd-text-secondary: #9aa8c0;
+  --vd-text-secondary-2: #8a99b4;
+  --vd-text-muted: #6b7a92;
+  --vd-text-on-glass: #d6e2f4;
+
+  --vd-shadow-chip: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --vd-shadow-card: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --vd-shadow-cta: 0 10px 24px rgba(0, 0, 0, 0.5);
+  --vd-shadow-approve: 0 10px 24px rgba(0, 0, 0, 0.5);
+  --vd-shadow-shell: 0 30px 80px rgba(0, 0, 0, 0.6);
+  --vd-shadow-popover: 0 16px 40px rgba(0, 0, 0, 0.55);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']):not([data-theme='dark']) {
+    --vd-accent: oklch(0.68 0.2 283);
+
+    --vd-surface-desk: radial-gradient(
+      ellipse 120% 80% at 50% 0%,
+      #1a2233 0%,
+      #121826 100%
+    );
+    --vd-surface-app: linear-gradient(165deg, #2b3a5c 0%, #232f52 48%, #171d3a 100%);
+    --vd-surface-card: #1c2434;
+    --vd-surface-glass: rgba(28, 36, 52, 0.55);
+    --vd-surface-glass-strong: rgba(28, 36, 52, 0.72);
+
+    --vd-text: #e6ecf6;
+    --vd-text-body: #c4cfe0;
+    --vd-text-secondary: #9aa8c0;
+    --vd-text-secondary-2: #8a99b4;
+    --vd-text-muted: #6b7a92;
+    --vd-text-on-glass: #d6e2f4;
+
+    --vd-shadow-chip: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --vd-shadow-card: 0 8px 24px rgba(0, 0, 0, 0.45);
+    --vd-shadow-cta: 0 10px 24px rgba(0, 0, 0, 0.5);
+    --vd-shadow-approve: 0 10px 24px rgba(0, 0, 0, 0.5);
+    --vd-shadow-shell: 0 30px 80px rgba(0, 0, 0, 0.6);
+    --vd-shadow-popover: 0 16px 40px rgba(0, 0, 0, 0.55);
+  }
+}
