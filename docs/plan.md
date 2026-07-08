@@ -23,8 +23,8 @@ Legend: `‖` = parallelizable · `⛔` = blocked by a gate · `→` = hard depe
 ## 1. Status Board  *(update this every session — it is the resume point)*
 
 - **Current phase:** Phase 0 — Foundation
-- **Current position:** P0.2 complete — `packages/theme` ships CSS-variable tokens (119 decls, light + dark) + breakpoint consts; `bun run build` 7/7, `bun run typecheck` 13/13 green
-- **Next action:** P0.3 — core scaffold (`packages/core`): consult state machine, Zod contracts, i18n catalog (English), `tenant.ts` parsing
+- **Current position:** P0.3 complete — `packages/core` leaf ships consult state machine (§8.4), Zod agent contracts (§7.3), English i18n catalog + `t()` (DEC-4), and pure `tenant.ts` slug parsing (§9/DEC-1). Vitest wired; `bun run build` 7/7, `typecheck` 13/13, `test` 28 green (commit `b9717ef`)
+- **Next action:** P0.4 — platform seam (`packages/platform`): web impls only (storage/clock/etc.), no native code
 - **Open blockers / decisions:** none
 - **G-1 status (RA-1 doctor sign-off):** ⬜ not yet secured — pursue in parallel; blocks Phase 2 Doctor-app half
 - **Last green tag:** _none_ (Phase 0 exit tag `v0-foundation` lands after P0.7)
@@ -62,11 +62,11 @@ Legend: `‖` = parallelizable · `⛔` = blocked by a gate · `→` = hard depe
 - **AC:** tokens importable; dark/light swap is a `:root` variable change with zero component edits. ✅
 
 ### P0.3 — Core package scaffold  ‖  → P0.1
-- [ ] `packages/core`: consult **state machine** (§8.4) as a pure function/table.
-- [ ] Zod **contracts** (§7.3): `MiraPatientTurn`, `Recommendation`, `MiraCoordinatorTurn`.
-- [ ] i18n catalog scaffold (English only; all strings go through it — seam 4, DEC-4).
-- [ ] `tenant.ts`: subdomain→slug **parsing** only (the single place it exists); wiring deferred to Phase 6.
-- **AC:** unit tests for state-machine transitions + contract parse/reject; CI fails on any hardcoded user-facing string.
+- [x] `packages/core`: consult **state machine** (§8.4) as a pure function/table.
+- [x] Zod **contracts** (§7.3): `MiraPatientTurn`, `Recommendation`, `MiraCoordinatorTurn`.
+- [x] i18n catalog scaffold (English only; all strings go through it — seam 4, DEC-4).
+- [x] `tenant.ts`: subdomain→slug **parsing** only (the single place it exists); wiring deferred to Phase 6.
+- **AC:** unit tests for state-machine transitions + contract parse/reject ✅ (28 tests green). *CI fail-on-hardcoded-string enforcement lands with the lint/CI setup in P0.7 — catalog seam is in place now.*
 
 ### P0.4 — Platform capability seam  ‖  → P0.1
 - [ ] `packages/platform` wrappers (web impls only, seam 5 / DEC-16): notifications/push, install prompt, share, persistent storage, back-nav.
@@ -314,3 +314,4 @@ Legend: `‖` = parallelizable · `⛔` = blocked by a gate · `→` = hard depe
 | 2026-07-08 | — | plan.md created | Begin P0.1 |
 | 2026-07-08 | P0.1 | Monorepo skeleton: Bun workspaces + Turborepo, `packages/config` (tsconfig/eslint/prettier/vite base), all 7 packages + `apps/web` stubs with §4-correct deps, `supabase/*` placeholders. `bun run build` 7/7, `typecheck` 13/13 green | Begin P0.2 — design tokens & theme |
 | 2026-07-08 | P0.2 | `packages/theme`: `tokens.css` (119 CSS-var decls ported from `docs/design/Design.md` — type/color/radius/space/motion/status/shadow, light + `[data-theme=dark]` + prefers-color-scheme fallback), `breakpoints.ts` (`TABLET=768`/`DESKTOP=1120`/`MEDIA`), `./tokens.css` export. `bun run build` 7/7, `typecheck` 13/13 green | Begin P0.3 — core scaffold |
+| 2026-07-08 | P0.3 | `packages/core` leaf: `state.ts` (§8.4 consult state machine — pure transition table, `canTransition`/`transition`/`isTerminalStatus`, `InvalidConsultTransitionError`), `contracts.ts` (§7.3 Zod contracts w/ cross-field refines, no approve action), `i18n/` (English catalog + `t()`, DEC-4), `tenant.ts` (§9/DEC-1 pure slug parsing). Vitest wired per-package. build 7/7, typecheck 13/13, test 28 green. Commit `b9717ef` | Begin P0.4 — platform seam (web impls) |
