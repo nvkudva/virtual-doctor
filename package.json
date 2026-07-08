@@ -8,14 +8,16 @@
   "scripts": {
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
-    "lint": "turbo run lint",
     "test": "turbo run test",
+    "size": "turbo run size",
+    "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",
     "@types/node": "^24.5.2",
+    "@vd/config": "workspace:*",
     "eslint": "^9.36.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "prettier": "^3.6.2",

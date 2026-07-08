@@ -11,12 +11,13 @@
       "dependsOn": ["^build"],
       "inputs": ["src/**", "tsconfig.json"]
     },
-    "lint": {
-      "inputs": ["src/**", "eslint.config.js"]
-    },
     "test": {
       "dependsOn": ["^build"],
       "inputs": ["src/**"]
+    },
+    "size": {
+      "dependsOn": ["build"],
+      "inputs": ["dist/**", "package.json"]
     }
   }
 }

@@ -23,17 +23,17 @@ Legend: `‖` = parallelizable · `⛔` = blocked by a gate · `→` = hard depe
 ## 1. Status Board  *(update this every session — it is the resume point)*
 
 - **Current phase:** Phase 0 — Foundation
-- **Current position:** P0.5 complete — `apps/web` is a Vite React SPA: hand-rolled `router.tsx` (first path segment → `React.lazy` module), `AppShell` (header/nav/footer, safe-area insets, JS-driven breakpoint reflow via `useBreakpoint` off named `@vd/theme` MEDIA + `[data-breakpoint]` CSS, 44px touch targets — §10.1 r6), static seeded hospital config brands `:root` on boot. `manualChunks` = per-module chunks (`module-patient`/`module-doctor`) + shared `vendor-react` (DEC-19). `/patient` + `/doctor` themed-shell stubs both live. `bun run build` 13/13, `typecheck` 13/13, `test` 28 green (commit `e834f77`)
-- **Next action:** P0.6 — PWA shell foundation (`vite-plugin-pwa` injectManifest, DEC-17): hand-written SW precaches app shell; manifest `display: standalone` + safe-area; preconnect Supabase + self-hosted preloaded fonts; `touch-action` on primitives. AC: 2nd offline load paints branded shell
-- **Open blockers / decisions:** none
+- **Current position:** P0.7 complete — **Phase 0 done.** CI is `.github/workflows/ci.yml` (bun `setup-bun@v2`, `bun install --frozen-lockfile`): typecheck → lint → test → build → size, then a `main`-only Cloudflare Pages `deploy` job (gated on `CLOUDFLARE_API_TOKEN`, skipped on forks/PRs). Lint now actually runs (`bun run lint` = `eslint .`; root gained a `@vd/config` dep so the shared flat config resolves) — added `docs/design/**`, `.claude/**`, `**/sw.ts` ignores + a `disableTypeChecked` override for `*.test.ts`. **DEC-19 import boundary** enforced via `no-restricted-imports` on `modules/patient/**` ↔ `modules/doctor/**` (verified: cross-module import errors). **Per-module ≤150 KB gzip budget** via `size-limit`/`@size-limit/file` (`turbo run size`, currently 217 B / 216 B). SPA history-fallback = `apps/web/public/_redirects` (`/* /index.html 200`). Typed `vite-env.d.ts` removes `import.meta.env` unsafe-any. Local pipeline all green: lint OK, typecheck 13/13, test 28, build 7/7, size 2/2 under budget
+- **Next action:** Push branch + open PR to confirm the GitHub Actions run is green on CI infra, then tag `v0-foundation` and begin **Phase 1 — Data platform & auth** (§12 Phase 1). First subphase: Supabase project + schema migrations with tenant isolation (RLS)
+- **Open blockers / decisions:** none blocking. **Carry-forward:** two custom lint rules that P0.3/P0.4 ACs anticipated landing "with P0.7 lint/CI" are *not yet* implemented — (a) fail-on-hardcoded-string outside the i18n catalog (seam 4), (b) no raw `Notification`/`navigator.share`/storage calls outside `@vd/platform` (seam 5). The lint/CI scaffold they depend on now exists; add both as a fast P0.7 addendum or fold into Phase 1 hardening
 - **G-1 status (RA-1 doctor sign-off):** ⬜ not yet secured — pursue in parallel; blocks Phase 2 Doctor-app half
-- **Last green tag:** _none_ (Phase 0 exit tag `v0-foundation` lands after P0.7)
+- **Last green tag:** _none_ (Phase 0 exit tag `v0-foundation` to be cut once CI is confirmed green on GitHub)
 
 ### Phase completion at a glance
 
 | Phase | Milestone | MVP | State |
 |---|---|---|---|
-| 0 | Foundation — real but empty skeleton | MVP-0 | 🟡 |
+| 0 | Foundation — real but empty skeleton | MVP-0 | ✅ |
 | 1 | Data platform & auth — tenancy provably isolated | MVP-0 | ⬜ |
 | 2 | Text consult end-to-end — the full loop, no voice | MVP-0 | ⬜ |
 | 3 | Patient voice — core experience at target latency | MVP-0 | ⬜ |
@@ -80,16 +80,16 @@ Legend: `‖` = parallelizable · `⛔` = blocked by a gate · `→` = hard depe
 - **AC:** both routes live, branded from seed config, each in its own chunk.
 
 ### P0.6 — PWA shell foundation (instant-load skeleton)  → P0.5
-- [ ] `vite-plugin-pwa` in **`injectManifest`** mode (DEC-17); hand-written service worker precaches the app shell (§11.4).
-- [ ] Manifest `display: standalone` + safe-area insets wired into `AppShell`.
-- [ ] Resource-hint skeleton: `preconnect` to Supabase, self-hosted **preloaded** fonts (remove any CDN font link).
-- [ ] `touch-action` on interactive primitives (no 300ms tap delay).
+- [x] `vite-plugin-pwa` in **`injectManifest`** mode (DEC-17); hand-written service worker precaches the app shell (§11.4).
+- [x] Manifest `display: standalone` + safe-area insets wired into `AppShell`.
+- [x] Resource-hint skeleton: `preconnect` to Supabase, self-hosted **preloaded** fonts (remove any CDN font link).
+- [x] `touch-action` on interactive primitives (no 300ms tap delay).
 - **AC:** a **second, offline** load of either module still paints the branded shell from SW precache.
 
 ### P0.7 — CI + deploy  → P0.5
-- [ ] GitHub Actions: typecheck + lint + unit + build + `size-limit` on every PR (through Turbo cache; `bun install --frozen-lockfile`).
-- [ ] **DEC-19 import-boundary check** (`modules/*` may not import another `modules/*`) + **per-module ≤150 KB gzip initial-JS budget**.
-- [ ] Deploy single PWA to Cloudflare Pages (one project, default domain) with SPA history-fallback (DEC-12).
+- [x] GitHub Actions: typecheck + lint + unit + build + `size-limit` on every PR (through Turbo cache; `bun install --frozen-lockfile`).
+- [x] **DEC-19 import-boundary check** (`modules/*` may not import another `modules/*`) + **per-module ≤150 KB gzip initial-JS budget**.
+- [x] Deploy single PWA to Cloudflare Pages (one project, default domain) with SPA history-fallback (DEC-12).
 - **AC:** CI green and enforces budgets + import boundary; both module routes live on the deployed URL.
 
 > **Phase 0 done when:** `bun i && bun run build` green · both branded module routes live · offline shell paints · CI enforces budgets + import boundary. Tag `v0-foundation`.

@@ -7,6 +7,18 @@
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
     <title>Virtual Doctor</title>
+
+    <!-- Resource-hint skeleton (§11.4): self-hosted brand font preloaded so the shell
+         paints in Instrument Sans without a FOUT flash. Latin subset only — latin-ext
+         loads on demand via @font-face unicode-range. Supabase preconnect is emitted at
+         runtime from env (src/shell/resource-hints) since its origin is not build-static. -->
+    <link
+      rel="preload"
+      href="/fonts/instrument-sans-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
   </head>
   <body>
     <div id="root"></div>
