@@ -23,8 +23,8 @@ Legend: `‖` = parallelizable · `⛔` = blocked by a gate · `→` = hard depe
 ## 1. Status Board  *(update this every session — it is the resume point)*
 
 - **Current phase:** Phase 0 — Foundation
-- **Current position:** P0.4 complete — `packages/platform` ships five web capability wrappers (notifications/push, install prompt, share, persistent storage, in-app back-nav) per seam 5 / DEC-16; each feature-detects + degrades so a native adapter can drop in later. DOM lib scoped to platform tsconfig (core leaf unchanged). `bun run build` 7/7, `typecheck` 13/13, `test` 28 green (commit `6f85a5a`)
-- **Next action:** P0.5 — app shell + router (`apps/web`): shell exports modules can consume, route table for `/patient` + `/doctor` (path routing only; subdomain wiring waits Phase 6)
+- **Current position:** P0.5 complete — `apps/web` is a Vite React SPA: hand-rolled `router.tsx` (first path segment → `React.lazy` module), `AppShell` (header/nav/footer, safe-area insets, JS-driven breakpoint reflow via `useBreakpoint` off named `@vd/theme` MEDIA + `[data-breakpoint]` CSS, 44px touch targets — §10.1 r6), static seeded hospital config brands `:root` on boot. `manualChunks` = per-module chunks (`module-patient`/`module-doctor`) + shared `vendor-react` (DEC-19). `/patient` + `/doctor` themed-shell stubs both live. `bun run build` 13/13, `typecheck` 13/13, `test` 28 green (commit `e834f77`)
+- **Next action:** P0.6 — PWA shell foundation (`vite-plugin-pwa` injectManifest, DEC-17): hand-written SW precaches app shell; manifest `display: standalone` + safe-area; preconnect Supabase + self-hosted preloaded fonts; `touch-action` on primitives. AC: 2nd offline load paints branded shell
 - **Open blockers / decisions:** none
 - **G-1 status (RA-1 doctor sign-off):** ⬜ not yet secured — pursue in parallel; blocks Phase 2 Doctor-app half
 - **Last green tag:** _none_ (Phase 0 exit tag `v0-foundation` lands after P0.7)
@@ -73,10 +73,10 @@ Legend: `‖` = parallelizable · `⛔` = blocked by a gate · `→` = hard depe
 - **AC:** wrappers compile ✅ (typecheck 13/13, build 7/7). Each wrapper feature-detects + degrades gracefully; DOM lib scoped to platform tsconfig only (core leaf stays ES2022). *The "no raw `Notification`/`navigator.share`/storage calls elsewhere" lint rule lands with the P0.7 lint/CI setup — mirrors the P0.3 hardcoded-string deferral; the wrapper seam is in place now.*
 
 ### P0.5 — App shell + router  → P0.2, P0.3
-- [ ] `apps/web`: `AppShell` (header/nav/footer, safe-area insets, owns breakpoint reflow — §10.1 rule 6).
-- [ ] `router.tsx`: first path segment → lazy-loaded module; `/patient` + `/doctor` stubs each render a themed shell.
-- [ ] `vite.config.ts`: `manualChunks` = one chunk per module (download isolation, DEC-19).
-- [ ] Shell reads seeded hospital config → applies theme CSS vars on `:root`.
+- [x] `apps/web`: `AppShell` (header/nav/footer, safe-area insets, owns breakpoint reflow — §10.1 rule 6).
+- [x] `router.tsx`: first path segment → lazy-loaded module; `/patient` + `/doctor` stubs each render a themed shell.
+- [x] `vite.config.ts`: `manualChunks` = one chunk per module (download isolation, DEC-19).
+- [x] Shell reads seeded hospital config → applies theme CSS vars on `:root`.
 - **AC:** both routes live, branded from seed config, each in its own chunk.
 
 ### P0.6 — PWA shell foundation (instant-load skeleton)  → P0.5
@@ -316,3 +316,4 @@ Legend: `‖` = parallelizable · `⛔` = blocked by a gate · `→` = hard depe
 | 2026-07-08 | P0.2 | `packages/theme`: `tokens.css` (119 CSS-var decls ported from `docs/design/Design.md` — type/color/radius/space/motion/status/shadow, light + `[data-theme=dark]` + prefers-color-scheme fallback), `breakpoints.ts` (`TABLET=768`/`DESKTOP=1120`/`MEDIA`), `./tokens.css` export. `bun run build` 7/7, `typecheck` 13/13 green | Begin P0.3 — core scaffold |
 | 2026-07-08 | P0.3 | `packages/core` leaf: `state.ts` (§8.4 consult state machine — pure transition table, `canTransition`/`transition`/`isTerminalStatus`, `InvalidConsultTransitionError`), `contracts.ts` (§7.3 Zod contracts w/ cross-field refines, no approve action), `i18n/` (English catalog + `t()`, DEC-4), `tenant.ts` (§9/DEC-1 pure slug parsing). Vitest wired per-package. build 7/7, typecheck 13/13, test 28 green. Commit `b9717ef` | Begin P0.4 — platform seam (web impls) |
 | 2026-07-08 | P0.4 | `packages/platform` populated with five web capability wrappers (seam 5 / DEC-16): `notifications.ts` (permission, SW-first showNotification, push sub/unsub), `install.ts` (beforeinstallprompt capture, standalone detect, promptInstall), `share.ts` (navigator.share + clipboard fallback), `storage.ts` (StorageManager persist/persisted/estimate), `navigation.ts` (in-app back w/ interceptable handlers). All feature-detect + degrade gracefully. DOM lib scoped to platform tsconfig only. build 7/7, typecheck 13/13, test 28 green. Commit `6f85a5a` | Begin P0.5 — app shell + router |
+| 2026-07-08 | P0.5 | `apps/web` Vite React SPA: `main.tsx` (resolve+apply seeded hospital theme, mount), `app.tsx` (`AppShell` > `Router`), hand-rolled `router.tsx` (first path segment → `React.lazy` patient/doctor modules, popstate-driven), `AppShell.tsx`+`.module.css` (header/nav/footer, `useBreakpoint`→`[data-breakpoint]` reflow off named `@vd/theme` MEDIA, 44px targets, safe-area — §10.1 r6), `hospital.ts` (static seed config brands `:root`), `vite.config.ts` (`manualChunks` per-module + `vendor-react`, DEC-19). `/patient`+`/doctor` stubs live & branded. build 13/13, typecheck 13/13, test 28 green. Commit `e834f77` | Begin P0.6 — PWA shell foundation |
