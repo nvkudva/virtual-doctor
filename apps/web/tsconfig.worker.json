@@ -1,0 +1,10 @@
+{
+  "//": "P0.6: the service worker runs in a WebWorker global scope, not DOM. It gets its own typecheck target so ServiceWorkerGlobalScope resolves and DOM/WebWorker lib globals (self, fetch, caches) don't collide with the app's DOM-libbed tsconfig.",
+  "extends": "@vd/config/tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "lib": ["ES2022", "WebWorker"],
+    "types": []
+  },
+  "include": ["src/sw.ts"]
+}

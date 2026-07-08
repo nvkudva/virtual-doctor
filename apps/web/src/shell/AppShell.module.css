@@ -45,6 +45,7 @@
   padding-inline: var(--vd-space-2, 0.5rem);
   color: inherit;
   text-decoration: none;
+  touch-action: manipulation; /* P0.6: no 300ms tap delay on interactive primitives */
 }
 
 .main {

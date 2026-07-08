@@ -23,8 +23,8 @@ Legend: `‖` = parallelizable · `⛔` = blocked by a gate · `→` = hard depe
 ## 1. Status Board  *(update this every session — it is the resume point)*
 
 - **Current phase:** Phase 0 — Foundation
-- **Current position:** P0.5 complete — `apps/web` is a Vite React SPA: hand-rolled `router.tsx` (first path segment → `React.lazy` module), `AppShell` (header/nav/footer, safe-area insets, JS-driven breakpoint reflow via `useBreakpoint` off named `@vd/theme` MEDIA + `[data-breakpoint]` CSS, 44px touch targets — §10.1 r6), static seeded hospital config brands `:root` on boot. `manualChunks` = per-module chunks (`module-patient`/`module-doctor`) + shared `vendor-react` (DEC-19). `/patient` + `/doctor` themed-shell stubs both live. `bun run build` 13/13, `typecheck` 13/13, `test` 28 green (commit `e834f77`)
-- **Next action:** P0.6 — PWA shell foundation (`vite-plugin-pwa` injectManifest, DEC-17): hand-written SW precaches app shell; manifest `display: standalone` + safe-area; preconnect Supabase + self-hosted preloaded fonts; `touch-action` on primitives. AC: 2nd offline load paints branded shell
+- **Current position:** P0.6 complete — `apps/web` is now an installable PWA. `vite-plugin-pwa` runs `injectManifest` over hand-written `src/sw.ts` (workbox `precacheAndRoute` + `NavigationRoute` bound to `index.html`), registered as a `registerType: 'prompt'` progressive enhancement in `main.tsx` (no auto-`skipWaiting`; update toast deferred to Phase 4). `manifest.webmanifest` is `display: standalone` + safe-area brand colors. Resource-hint skeleton: self-hosted **Instrument Sans** woff2 (latin + latin-ext, `@font-face` unicode-range, preloaded in `index.html`) with runtime Supabase `preconnect` (`shell/resource-hints.ts`, dormant until `VITE_SUPABASE_URL`); `touch-action: manipulation` on nav primitives. SW typechecked via separate `tsconfig.worker.json` (WebWorker lib). `build` 7/7 (SW precaches 9 entries / 240 KiB incl. shell + fonts), `typecheck` 13/13, `test` 28 green
+- **Next action:** P0.7 — CI + deploy: GitHub Actions (typecheck + lint + unit + build + `size-limit`, Turbo cache, `bun install --frozen-lockfile`); DEC-19 import-boundary check + per-module ≤150 KB gzip budget; deploy single PWA to Cloudflare Pages with SPA history-fallback (DEC-12). AC: CI green + enforces budgets/boundary; both module routes live on deployed URL
 - **Open blockers / decisions:** none
 - **G-1 status (RA-1 doctor sign-off):** ⬜ not yet secured — pursue in parallel; blocks Phase 2 Doctor-app half
 - **Last green tag:** _none_ (Phase 0 exit tag `v0-foundation` lands after P0.7)
@@ -80,10 +80,10 @@ Legend: `‖` = parallelizable · `⛔` = blocked by a gate · `→` = hard depe
 - **AC:** both routes live, branded from seed config, each in its own chunk.
 
 ### P0.6 — PWA shell foundation (instant-load skeleton)  → P0.5
-- [ ] `vite-plugin-pwa` in **`injectManifest`** mode (DEC-17); hand-written service worker precaches the app shell (§11.4).
-- [ ] Manifest `display: standalone` + safe-area insets wired into `AppShell`.
-- [ ] Resource-hint skeleton: `preconnect` to Supabase, self-hosted **preloaded** fonts (remove any CDN font link).
-- [ ] `touch-action` on interactive primitives (no 300ms tap delay).
+- [x] `vite-plugin-pwa` in **`injectManifest`** mode (DEC-17); hand-written service worker precaches the app shell (§11.4).
+- [x] Manifest `display: standalone` + safe-area insets wired into `AppShell`.
+- [x] Resource-hint skeleton: `preconnect` to Supabase, self-hosted **preloaded** fonts (remove any CDN font link).
+- [x] `touch-action` on interactive primitives (no 300ms tap delay).
 - **AC:** a **second, offline** load of either module still paints the branded shell from SW precache.
 
 ### P0.7 — CI + deploy  → P0.5
