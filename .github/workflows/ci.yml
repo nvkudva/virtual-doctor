@@ -41,6 +41,27 @@ jobs:
       - name: Size budgets (DEC-19 ≤150 KB gzip/module)
         run: bun run size
 
+  db-types:
+    # §8.2 contracts-are-law (P1.1 AC): the committed Postgres types must match the migrations.
+    # Boot the local stack from supabase/migrations, regenerate, and fail if the committed
+    # packages/api/src/database.types.ts drifted. Runs independently of `verify`.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start local stack (skip services not needed for type generation)
+        run: supabase start -x studio,realtime,storage,imgproxy,inbucket,edge-runtime,functions,vector,analytics
+
+      - name: Regenerate Postgres types
+        run: supabase gen types typescript --local > packages/api/src/database.types.ts
+
+      - name: Fail if committed types are stale
+        run: git diff --exit-code -- packages/api/src/database.types.ts
+
   deploy:
     # Deploy the single PWA to Cloudflare Pages (DEC-12) on main only, after verify passes.
     # SPA history-fallback is served via apps/web/public/_redirects. Skipped unless the
