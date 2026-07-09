@@ -7,6 +7,8 @@ interface ImportMetaEnv {
   readonly VITE_VD_HOSPITAL_SLUG?: string;
   /** Supabase origin for the runtime preconnect hint; dormant until set (shell/resource-hints.ts). */
   readonly VITE_SUPABASE_URL?: string;
+  /** Supabase anon (publishable) key. Public, RLS-gated; used by the per-module clients (§5.2). */
+  readonly VITE_SUPABASE_ANON_KEY?: string;
 }
 
 interface ImportMeta {

@@ -3,6 +3,17 @@
 
 export const API_PACKAGE = '@vd/api' as const;
 
+// Per-module namespaced Supabase client (§5.2).
+export {
+  createModuleClient,
+  moduleStorageKey,
+  type AppModule,
+  type ModuleClientConfig,
+  type SupabaseClient,
+  type Session,
+  type User,
+} from './client.js';
+
 // §8.2 contracts-are-law: generated Postgres types are the committed source of truth for
 // the DB shape. Regenerate with `supabase gen types typescript --local`; CI fails if stale.
 export type {

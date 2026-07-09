@@ -19,6 +19,52 @@ export const messages = {
   'error.generic': 'Something went wrong. Please try again.',
   'error.offline': "You're offline. Reconnecting…",
 
+  // Auth surfaces (§5.2, P1.3). Patient uses Google OAuth; doctor uses operator-provisioned
+  // email/password (no self-signup).
+  'auth.patient.title': 'Welcome',
+  'auth.patient.subtitle': 'Sign in to start a consultation.',
+  'auth.patient.google': 'Continue with Google',
+  'auth.patient.signingIn': 'Opening Google…',
+  'auth.doctor.title': 'Clinician sign-in',
+  'auth.doctor.subtitle': 'Use the credentials issued by your hospital.',
+  'auth.doctor.email': 'Email',
+  'auth.doctor.password': 'Password',
+  'auth.doctor.signIn': 'Sign in',
+  'auth.doctor.signingIn': 'Signing in…',
+  'auth.doctor.invalid': 'Email or password is incorrect.',
+  'auth.doctor.noSelfSignup': 'Accounts are provisioned by your hospital administrator.',
+  'auth.signOut': 'Sign out',
+
+  // First-run profile wizard (§5.6, P1.3). Written to profiles + patient_details.
+  'profile.title': 'Complete your profile',
+  'profile.subtitle': 'We use this to personalise your care. You can update it later.',
+  'profile.fullName': 'Full name',
+  'profile.dob': 'Date of birth',
+  'profile.sex': 'Sex',
+  'profile.sex.female': 'Female',
+  'profile.sex.male': 'Male',
+  'profile.sex.other': 'Other',
+  'profile.sex.undisclosed': 'Prefer not to say',
+  'profile.bloodGroup': 'Blood group',
+  'profile.bloodGroup.unknown': 'Not known',
+  'profile.allergies': 'Allergies',
+  'profile.conditions': 'Ongoing conditions',
+  'profile.medications': 'Current medications',
+  'profile.listHint': 'Separate multiple entries with commas.',
+  'profile.save': 'Save and continue',
+  'profile.saving': 'Saving…',
+  'profile.error.required': 'Please enter your name and date of birth.',
+  'profile.error.underage': 'You must be at least 18 to use this service.',
+  'profile.error.save': "We couldn't save your profile. Please try again.",
+
+  // Empty records surface shown after a patient completes their profile (P1.3 AC).
+  'records.empty.title': 'No records yet',
+  'records.empty.body': 'Your consultations and prescriptions will appear here.',
+
+  // Doctor review queue, empty in P1.3 (populated in later phases).
+  'doctor.queue.empty.title': 'No consultations to review',
+  'doctor.queue.empty.body': 'Approved and pending consultations for your hospital appear here.',
+
   // Consult status labels (§8.4 enum). Presentational copy for status pills.
   'consult.status.active': 'In progress',
   'consult.status.pending_review': 'Awaiting review',

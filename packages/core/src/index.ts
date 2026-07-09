@@ -31,3 +31,6 @@ export { t, messages, type MessageKey, type MessageParams } from './i18n/index.j
 
 // Tenant resolution (§9, DEC-1)
 export { parseHospitalSlug } from './tenant.js';
+
+// Patient age rule (§5.6: 18+ enforced)
+export { ageInYears, isAdult, MINIMUM_PATIENT_AGE } from './age.js';
